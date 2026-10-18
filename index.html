@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク・タブ独立音声中継</title>
+    <title>スマホマイク中継器</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- PeerJS WebRTCライブラリ (CDN) -->
+    <!-- PeerJS WebRTCライブラリ -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">本タブ専用・独立音声出力設計</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">シンプル動作版</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -36,8 +36,8 @@
 
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
-            <div class="text-xs text-slate-300 leading-relaxed bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                <strong>送信側手順:</strong> 合言葉を合わせて「マイク送信を開始」を押します。
+            <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
+                合言葉をPCと合わせて「マイク送信を開始」を押してください。
             </div>
             <button type="button" id="btnStartTx" onclick="startTransmitter()" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
                 マイク送信を開始
@@ -47,21 +47,20 @@
 
         <!-- パネル2：PC（受信側） -->
         <div id="panelRx" class="space-y-4 hidden">
-            <div class="text-xs text-slate-300 leading-relaxed bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                <strong>受信側手順:</strong><br>
-                1. 「出力デバイス権限を許可」を押す<br>
-                2. プルダウンで「CABLE Input」を選択<br>
-                3. 「受信を開始」を押す（このタブの音声のみが指定先へ流れます）
+            <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
+                1. 「出力デバイス一覧を読み込む」を押す<br>
+                2. 「CABLE Input」を選択<br>
+                3. 「受信を開始」を押す
             </div>
 
-            <button type="button" onclick="requestAndLoadDevices()" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg transition text-xs shadow">
-                1. 出力デバイス権限を許可・一覧読み込み
+            <button type="button" onclick="loadDevices()" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg transition text-xs shadow">
+                1. 出力デバイス一覧を読み込む
             </button>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-400 mb-1">このサイト（タブ）専用の出力先</label>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">出力デバイス選択</label>
                 <select id="audioOutputSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-xs text-white">
-                    <option value="">(まずは上の「権限を許可」を押してください)</option>
+                    <option value="">(まずは上のボタンを押してください)</option>
                 </select>
             </div>
 
@@ -72,24 +71,11 @@
         </div>
     </div>
 
-    <!-- 本タブ専用の音声ルーティングエレメント -->
-    <audio id="tabIsolatedAudio" autoplay class="hidden"></audio>
-    <audio id="keepAlive" loop class="hidden"></audio>
+    <!-- 音声再生エレメント -->
+    <audio id="remoteAudio" autoplay controls class="hidden"></audio>
 
     <script>
         let peer = null;
-        let localStream = null;
-        let audioContext = null;
-        let mediaStreamSource = null;
-
-        const peerConfig = {
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
-                ]
-            }
-        };
 
         function switchTab(mode) {
             const tabTx = document.getElementById('tabTx');
@@ -115,49 +101,32 @@
             document.getElementById('roomId').value = 'mic-' + rand;
         }
 
-        // 個別出力許可とデバイス一覧取得
-        async function requestAndLoadDevices() {
+        async function loadDevices() {
             const select = document.getElementById('audioOutputSelect');
             select.innerHTML = '<option value="">読み込み中...</option>';
-
             try {
-                // 明示的にWeb Audioのコンテキストを作成・再開
-                if (!audioContext) {
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                }
-                if (audioContext.state === 'suspended') {
-                    await audioContext.resume();
-                }
-
-                // デバイスラベルを開放させるためのダミー権限要求
+                // マイクの権限だけ軽く取ってすぐ閉じる（一覧のラベル表示用）
                 const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 tempStream.getTracks().forEach(t => t.stop());
 
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const outputs = devices.filter(d => d.kind === 'audiooutput');
 
-                select.innerHTML = '';
-                if (outputs.length === 0) {
-                    select.innerHTML = '<option value="">(利用可能な出力先が見つかりません)</option>';
-                    return;
-                }
-
+                select.innerHTML = '<option value="">(デフォルト出力)</option>';
                 outputs.forEach(d => {
                     const opt = document.createElement('option');
                     opt.value = d.deviceId;
                     opt.textContent = d.label || `スピーカー (${d.deviceId.slice(0, 5)}...)`;
                     select.appendChild(opt);
                 });
-
-                alert('出力デバイス一覧を更新しました！「CABLE Input」を選択してください。');
+                alert('デバイス一覧を読み込みました！');
             } catch (e) {
-                console.error("デバイス取得エラー:", e);
-                select.innerHTML = '<option value="">(取得エラー)</option>';
-                alert('エラー: マイク/スピーカーのアクセス権限が必要です。');
+                select.innerHTML = '<option value="">(取得失敗)</option>';
+                alert('エラー: マイク/音声のアクセス権限を許可してください');
             }
         }
 
-        // --- スマホ（送信側） ---
+        // スマホ側（送信）
         async function startTransmitter() {
             const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusTx');
@@ -169,25 +138,19 @@
             status.innerText = 'マイクを取得中...';
 
             try {
-                if (!localStream) {
-                    localStream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
-                        video: false 
-                    });
-                }
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: true, noiseSuppression: true }, 
+                    video: false 
+                });
 
-                const keep = document.getElementById('keepAlive');
-                keep.src = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
-                keep.play().catch(() => {});
-
-                status.innerText = 'サーバーへ接続中...';
+                status.innerText = 'サーバー接続中...';
                 if (peer) { try { peer.destroy(); } catch(e){} }
 
-                peer = new Peer(peerConfig);
+                peer = new Peer();
 
                 peer.on('open', () => {
                     status.innerText = 'PC側へ接続中...';
-                    const call = peer.call('rx-' + id, localStream);
+                    const call = peer.call('rx-' + id, stream);
                     if (!call) {
                         status.innerText = '❌ PC側が見つかりません。PC側で「受信を開始」を先に押してください';
                         btn.disabled = false;
@@ -202,65 +165,55 @@
                 });
 
             } catch (e) {
-                status.innerText = '❌ マイク許可が必要です';
+                status.innerText = '❌ マイクの許可が必要です';
                 btn.disabled = false;
             }
         }
 
-        // --- PC（受信側：タブ分離出力） ---
+        // PC側（受信）
         function startReceiver() {
             const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusRx');
             const btn = document.getElementById('btnStartRx');
             const deviceId = document.getElementById('audioOutputSelect').value;
-            const audioEl = document.getElementById('tabIsolatedAudio');
+            const audioEl = document.getElementById('remoteAudio');
 
             if (!id) { alert('合言葉を入力してください'); return; }
 
             btn.disabled = true;
-            status.innerText = '受信用待機IDを作成中...';
+            status.innerText = '受信用IDを作成中...';
 
             if (peer) { try { peer.destroy(); } catch(e){} }
 
-            peer = new Peer('rx-' + id, peerConfig);
+            peer = new Peer('rx-' + id);
 
             peer.on('open', () => {
                 status.innerText = '🟢 受信待機中！ スマホから送信を開始してください';
             });
 
             peer.on('call', (call) => {
-                status.innerText = 'スマホから着信がありました！音声パイプライン構築中...';
+                status.innerText = '接続完了！音声を再生中...';
                 call.answer();
 
-                call.on('stream', async (remoteStream) => {
+                call.on('stream', async (stream) => {
+                    audioEl.srcObject = stream;
+                    
+                    // ブラウザの自動再生ブロック対策で明示的にplay呼び出し
                     try {
-                        // Web Audio APIのパイプラインを通してこのタブ内の音声ストリームを完全にカプセル化
-                        if (!audioContext) {
-                            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        }
-                        if (audioContext.state === 'suspended') {
-                            await audioContext.resume();
-                        }
+                        await audioEl.play();
+                    } catch (e) {
+                        console.log("自動再生ブロック:", e);
+                    }
 
-                        // 受信ストリームをWeb Audioノードに変換
-                        mediaStreamSource = audioContext.createMediaStreamSource(remoteStream);
-                        const audioDestination = audioContext.createMediaStreamDestination();
-                        mediaStreamSource.connect(audioDestination);
-
-                        // 単一要素にバインド
-                        audioEl.srcObject = audioDestination.stream;
-
-                        // 対象デバイス（CABLE Input）への独立セット
-                        if (deviceId && typeof audioEl.setSinkId === 'function') {
+                    if (deviceId && typeof audioEl.setSinkId === 'function') {
+                        try {
                             await audioEl.setSinkId(deviceId);
-                            status.innerText = '🟢 受信中！（このタブのみ CABLE Input へ分離出力中）';
-                        } else {
-                            status.innerText = '🟢 受信中！（デフォルト出力）';
+                            status.innerText = '🟢 音声受信中（選択デバイスへ出力中）';
+                        } catch (e) {
+                            status.innerText = '🟢 音声受信中（デフォルト出力）';
                         }
-                    } catch (err) {
-                        console.error("ルーティングエラー:", err);
-                        audioEl.srcObject = remoteStream;
-                        status.innerText = '🟢 受信中！（直接再生）';
+                    } else {
+                        status.innerText = '🟢 音声受信中！';
                     }
                 });
             });
