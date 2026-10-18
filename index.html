@@ -3,24 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク・ワイヤレス中継（常時接続版）</title>
+    <title>スマホマイク・ワイヤレス中継（ネットワークエラー対策版）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- PeerJS WebRTCライブラリ -->
+    <!-- PeerJS WebRTCライブラリ (CDN) -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">バックグラウンド動作対応版</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">ネットワークエラー自動リカバリー版</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
-            <button type="button" id="tabTx" onclick="clickSwitchTab('tx')" class="py-2.5 rounded-md font-bold text-xs bg-indigo-600 text-white shadow">
+            <button type="button" id="tabTx" onclick="switchTab('tx')" class="py-2.5 rounded-md font-bold text-xs bg-indigo-600 text-white shadow">
                 スマホ（送信）
             </button>
-            <button type="button" id="tabRx" onclick="clickSwitchTab('rx')" class="py-2.5 rounded-md font-bold text-xs text-slate-400 hover:text-white">
+            <button type="button" id="tabRx" onclick="switchTab('rx')" class="py-2.5 rounded-md font-bold text-xs text-slate-400 hover:text-white">
                 PC（受信）
             </button>
         </div>
@@ -29,18 +29,17 @@
         <div class="mb-5 bg-slate-900/60 p-3 rounded-lg border border-slate-700">
             <label class="block text-xs font-semibold text-slate-400 mb-1">合言葉（ルームID）</label>
             <div class="flex gap-2">
-                <input type="text" id="roomId" value="train-mic-777" class="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500">
-                <button type="button" onclick="clickRandomId()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded text-xs font-medium">自動生成</button>
+                <input type="text" id="roomId" value="mic-room-777" class="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                <button type="button" onclick="generateId()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded text-xs font-medium">自動生成</button>
             </div>
         </div>
 
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
             <div class="text-xs text-slate-300 leading-relaxed bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                <strong>スマホ側の操作:</strong><br>
-                1. 「送信を開始」を押すと、無音のキープ音が再生され、他のアプリを開いてもマイクが切れなくなります。
+                <strong>送信側手順:</strong> 合言葉を合わせて「マイク送信を開始」を押します。回線が途切れても自動で再接続を試みます。
             </div>
-            <button type="button" id="btnStartTx" onclick="clickStartTransmitter()" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
+            <button type="button" id="btnStartTx" onclick="startTransmitter()" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
                 マイク送信を開始
             </button>
             <div id="statusTx" class="text-center text-xs text-amber-400 font-mono p-2 bg-slate-900/80 rounded">状態: 待機中</div>
@@ -49,40 +48,52 @@
         <!-- パネル2：PC（受信側） -->
         <div id="panelRx" class="space-y-4 hidden">
             <div class="text-xs text-slate-300 leading-relaxed bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                <strong>PC側の操作:</strong><br>
-                1. 一覧を読み込んで「CABLE Input」を選択<br>
+                <strong>受信側手順:</strong><br>
+                1. 一覧更新で「CABLE Input」を選択<br>
                 2. 「受信を開始」を押す
             </div>
 
-            <button type="button" onclick="loadAudioOutputs()" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg transition text-xs shadow">
-                1. スピーカー/出力デバイスの一覧を読み込む
+            <button type="button" onclick="loadDevices()" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg transition text-xs shadow">
+                1. 出力デバイス一覧を更新
             </button>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-400 mb-1">出力先（CABLE Input）</label>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">出力先（CABLE Inputを選択）</label>
                 <select id="audioOutputSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-xs text-white">
                     <option value="">(まずは上のボタンを押してください)</option>
                 </select>
             </div>
 
-            <button type="button" id="btnStartRx" onclick="clickStartReceiver()" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
+            <button type="button" id="btnStartRx" onclick="startReceiver()" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
                 2. 受信を開始（接続待ち）
             </button>
             <div id="statusRx" class="text-center text-xs text-amber-400 font-mono p-2 bg-slate-900/80 rounded">状態: 待機中</div>
         </div>
     </div>
 
-    <!-- 音声再生タグ（PC用） -->
-    <audio id="remoteAudio" autoplay class="hidden"></audio>
-    
-    <!-- スマホ用：バックグラウンドで生き残るための無音キープオーディオ -->
-    <audio id="keepAliveAudio" loop class="hidden"></audio>
+    <!-- 音声再生用タグ -->
+    <audio id="remoteAudio" autoplay></audio>
+    <audio id="keepAlive" loop class="hidden"></audio>
 
     <script>
-        let peerInstance = null;
-        let localMicStream = null;
+        let peer = null;
+        let localStream = null;
+        let activeCall = null;
+        let reconnectTimer = null;
 
-        function clickSwitchTab(mode) {
+        // PeerJS設定（Google提供の信頼性の高いSTUNサーバーを指定して通信の遮断を防ぐ）
+        const peerConfig = {
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' }
+                ]
+            },
+            debug: 1
+        };
+
+        function switchTab(mode) {
             const tabTx = document.getElementById('tabTx');
             const tabRx = document.getElementById('tabRx');
             const panelTx = document.getElementById('panelTx');
@@ -101,140 +112,192 @@
             }
         }
 
-        function clickRandomId() {
+        function generateId() {
             const rand = Math.floor(1000 + Math.random() * 9000);
             document.getElementById('roomId').value = 'mic-' + rand;
         }
 
-        async function loadAudioOutputs() {
+        async function loadDevices() {
             const select = document.getElementById('audioOutputSelect');
             select.innerHTML = '<option value="">読み込み中...</option>';
-
             try {
-                if (navigator.mediaDevices && typeof navigator.mediaDevices.selectAudioOutput === 'function') {
-                    await navigator.mediaDevices.selectAudioOutput().catch(() => {});
-                }
-                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {});
-                if (tempStream) tempStream.getTracks().forEach(t => t.stop());
-
+                await navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
                 const devices = await navigator.mediaDevices.enumerateDevices();
-                const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+                const outputs = devices.filter(d => d.kind === 'audiooutput');
 
                 select.innerHTML = '<option value="">(デフォルト出力)</option>';
-                audioOutputs.forEach(device => {
+                outputs.forEach(d => {
                     const opt = document.createElement('option');
-                    opt.value = device.deviceId;
-                    opt.textContent = device.label || `スピーカー (${device.deviceId.slice(0, 5)}...)`;
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label || `スピーカー (${d.deviceId.slice(0, 5)}...)`;
                     select.appendChild(opt);
                 });
-                alert('デバイス一覧を読み込みました！');
+                alert('デバイス一覧を更新しました！');
             } catch (e) {
-                select.innerHTML = '<option value="">(取得失敗)</option>';
+                select.innerHTML = '<option value="">(取得エラー)</option>';
             }
         }
 
-        // --- スマホ（送信側：バックグラウンド対応） ---
-        async function clickStartTransmitter() {
-            const rawId = document.getElementById('roomId').value.trim();
+        // スマホ側（送信）
+        async function startTransmitter() {
+            const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusTx');
             const btn = document.getElementById('btnStartTx');
-            const keepAlive = document.getElementById('keepAliveAudio');
 
-            if (!rawId) { alert('合言葉を入力してください'); return; }
+            if (!id) { alert('合言葉を入力してください'); return; }
 
             btn.disabled = true;
             status.innerText = 'マイクを取得中...';
 
             try {
-                // スマホのマイクを取得
-                localMicStream = await navigator.mediaDevices.getUserMedia({
-                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-                    video: false
+                if (!localStream) {
+                    localStream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
+                        video: false 
+                    });
+                }
+
+                // バックグラウンド生存用の無音ループ再生
+                const keep = document.getElementById('keepAlive');
+                keep.src = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+                keep.play().catch(() => {});
+
+                status.innerText = '通信サーバーへ接続中...';
+                
+                if (peer) {
+                    try { peer.destroy(); } catch(e){}
+                }
+
+                peer = new Peer(peerConfig);
+
+                peer.on('open', () => {
+                    status.innerText = 'PC側を検索・接続中...';
+                    connectToRx(id);
                 });
 
-                // 【超重要】OSに「今音楽・音声を再生中だ」と錯覚させ、バックグラウンドでのスリープを防ぐための無音データを生成してループ再生
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                gainNode.gain.value = 0.001; // ほぼ無音
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                oscillator.start();
-
-                // iOS/Android向けにサイレントオーディオ要素も再生
-                keepAlive.src = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
-                keepAlive.play().catch(() => {});
-
-                status.innerText = '通信サーバー接続中...';
-                if (peerInstance) peerInstance.destroy();
-                peerInstance = new Peer();
-
-                peerInstance.on('open', () => {
-                    status.innerText = 'PC側へ接続を試みています...';
-                    const targetRxId = 'rx-' + rawId;
-                    const call = peerInstance.call(targetRxId, localMicStream);
-
-                    if (!call) {
-                        status.innerText = '❌ PC側が見つかりません。PC側で先に「受信を開始」を押してください';
-                        btn.disabled = false;
-                        return;
+                // サーバー切断時の自動再接続処理
+                peer.on('disconnected', () => {
+                    status.innerText = '⚠️ サーバー切断。再接続中...';
+                    if (peer && !peer.destroyed) {
+                        peer.reconnect();
                     }
-                    status.innerText = '🟢 送信中！ (他のアプリを開いても動作します)';
                 });
 
-                peerInstance.on('error', (err) => {
-                    status.innerText = 'エラー: ' + err.type;
+                peer.on('error', (err) => {
+                    console.error("PeerJS Error:", err);
+                    if (err.type === 'peer-not-found') {
+                        status.innerText = '❌ PC側が見つかりません。PC側で「受信を開始」を先に押してください';
+                    } else if (err.type === 'network' || err.type === 'disconnected' || err.type === 'webrtc') {
+                        status.innerText = '🔄 ネットワーク不調。3秒後に自動再試行...';
+                        clearTimeout(reconnectTimer);
+                        reconnectTimer = setTimeout(() => { startTransmitter(); }, 3000);
+                        return;
+                    } else {
+                        status.innerText = 'エラー: ' + err.type;
+                    }
                     btn.disabled = false;
                 });
-            } catch (err) {
-                status.innerText = '❌ エラー: マイクの許可が必要です';
+
+            } catch (e) {
+                status.innerText = '❌ マイクの許可が必要です';
                 btn.disabled = false;
             }
         }
 
-        // --- PC（受信側） ---
-        function clickStartReceiver() {
-            const rawId = document.getElementById('roomId').value.trim();
+        function connectToRx(id) {
+            const status = document.getElementById('statusTx');
+            const btn = document.getElementById('btnStartTx');
+
+            if (activeCall) {
+                try { activeCall.close(); } catch(e){}
+            }
+
+            activeCall = peer.call('rx-' + id, localStream);
+
+            if (!activeCall) {
+                status.innerText = '❌ PC側が見つかりません';
+                btn.disabled = false;
+                return;
+            }
+
+            status.innerText = '🟢 送信中！（ネットワーク正常）';
+
+            activeCall.on('close', () => {
+                status.innerText = '⚠️ 通信が切れました。再接続を試みます...';
+                btn.disabled = false;
+            });
+
+            activeCall.on('error', (err) => {
+                status.innerText = '⚠️ 通信エラー。再試行中...';
+                btn.disabled = false;
+            });
+        }
+
+        // PC側（受信）
+        function startReceiver() {
+            const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusRx');
             const btn = document.getElementById('btnStartRx');
-            const selectedDeviceId = document.getElementById('audioOutputSelect').value;
-            const remoteAudio = document.getElementById('remoteAudio');
+            const deviceId = document.getElementById('audioOutputSelect').value;
+            const audioEl = document.getElementById('remoteAudio');
 
-            if (!rawId) { alert('合言葉を入力してください'); return; }
+            if (!id) { alert('合言葉を入力してください'); return; }
 
             btn.disabled = true;
-            status.innerText = '受信用IDを準備中...';
+            status.innerText = '受信用待機IDを作成中...';
 
-            const myRxId = 'rx-' + rawId;
-            if (peerInstance) peerInstance.destroy();
-            peerInstance = new Peer(myRxId);
+            if (peer) {
+                try { peer.destroy(); } catch(e){}
+            }
 
-            peerInstance.on('open', () => {
+            peer = new Peer('rx-' + id, peerConfig);
+
+            peer.on('open', () => {
                 status.innerText = '🟢 受信待機中！ スマホで送信を開始してください';
             });
 
-            peerInstance.on('call', (call) => {
-                status.innerText = 'スマホから接続がありました！';
+            // サーバー一時切断時の自動自動復旧
+            peer.on('disconnected', () => {
+                status.innerText = '⚠️ ネットワーク一時切断。復旧中...';
+                if (peer && !peer.destroyed) {
+                    peer.reconnect();
+                }
+            });
+
+            peer.on('call', (call) => {
+                status.innerText = 'スマホから着信がありました！接続確立中...';
                 call.answer();
 
-                call.on('stream', async (remoteStream) => {
-                    remoteAudio.srcObject = remoteStream;
-
-                    if (selectedDeviceId && typeof remoteAudio.setSinkId === 'function') {
+                call.on('stream', async (stream) => {
+                    audioEl.srcObject = stream;
+                    
+                    if (deviceId && typeof audioEl.setSinkId === 'function') {
                         try {
-                            await remoteAudio.setSinkId(selectedDeviceId);
-                            status.innerText = '🟢 音声受信中！（CABLE Inputへ常時ルーティング中）';
+                            await audioEl.setSinkId(deviceId);
+                            status.innerText = '🟢 音声受信中（CABLE Inputへルーティング成功）';
                         } catch (e) {
-                            status.innerText = '🟢 音声受信中！（デフォルト出力）';
+                            status.innerText = '🟢 音声受信中（デフォルト出力）';
                         }
                     } else {
                         status.innerText = '🟢 音声受信中！';
                     }
                 });
+
+                call.on('close', () => {
+                    status.innerText = '🟢 受信待機中（スマホからの再接続を待っています）';
+                });
             });
 
-            peerInstance.on('error', (err) => {
-                status.innerText = 'エラー: ' + err.type;
+            peer.on('error', (err) => {
+                console.error("PeerJS Error:", err);
+                if (err.type === 'unavailable-id') {
+                    status.innerText = '❌ この合言葉は使用中です。別の合言葉に変更してください';
+                } else if (err.type === 'network' || err.type === 'disconnected') {
+                    status.innerText = '⚠️ ネットワーク不調。自動待帰中...';
+                    if (peer && !peer.destroyed) peer.reconnect();
+                } else {
+                    status.innerText = 'エラー: ' + err.type;
+                }
                 btn.disabled = false;
             });
         }
