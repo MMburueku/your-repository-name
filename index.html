@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク・ワイヤレス中継（ネットワークエラー対策版）</title>
+    <title>スマホマイク・タブ独立音声中継</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS WebRTCライブラリ (CDN) -->
@@ -13,7 +13,7 @@
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">ネットワークエラー自動リカバリー版</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">本タブ専用・独立音声出力設計</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -37,7 +37,7 @@
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
             <div class="text-xs text-slate-300 leading-relaxed bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                <strong>送信側手順:</strong> 合言葉を合わせて「マイク送信を開始」を押します。回線が途切れても自動で再接続を試みます。
+                <strong>送信側手順:</strong> 合言葉を合わせて「マイク送信を開始」を押します。
             </div>
             <button type="button" id="btnStartTx" onclick="startTransmitter()" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
                 マイク送信を開始
@@ -49,48 +49,46 @@
         <div id="panelRx" class="space-y-4 hidden">
             <div class="text-xs text-slate-300 leading-relaxed bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
                 <strong>受信側手順:</strong><br>
-                1. 一覧更新で「CABLE Input」を選択<br>
-                2. 「受信を開始」を押す
+                1. 「出力デバイス権限を許可」を押す<br>
+                2. プルダウンで「CABLE Input」を選択<br>
+                3. 「受信を開始」を押す（このタブの音声のみが指定先へ流れます）
             </div>
 
-            <button type="button" onclick="loadDevices()" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg transition text-xs shadow">
-                1. 出力デバイス一覧を更新
+            <button type="button" onclick="requestAndLoadDevices()" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg transition text-xs shadow">
+                1. 出力デバイス権限を許可・一覧読み込み
             </button>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-400 mb-1">出力先（CABLE Inputを選択）</label>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">このサイト（タブ）専用の出力先</label>
                 <select id="audioOutputSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-xs text-white">
-                    <option value="">(まずは上のボタンを押してください)</option>
+                    <option value="">(まずは上の「権限を許可」を押してください)</option>
                 </select>
             </div>
 
             <button type="button" id="btnStartRx" onclick="startReceiver()" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
-                2. 受信を開始（接続待ち）
+                2. 受信を開始
             </button>
             <div id="statusRx" class="text-center text-xs text-amber-400 font-mono p-2 bg-slate-900/80 rounded">状態: 待機中</div>
         </div>
     </div>
 
-    <!-- 音声再生用タグ -->
-    <audio id="remoteAudio" autoplay></audio>
+    <!-- 本タブ専用の音声ルーティングエレメント -->
+    <audio id="tabIsolatedAudio" autoplay class="hidden"></audio>
     <audio id="keepAlive" loop class="hidden"></audio>
 
     <script>
         let peer = null;
         let localStream = null;
-        let activeCall = null;
-        let reconnectTimer = null;
+        let audioContext = null;
+        let mediaStreamSource = null;
 
-        // PeerJS設定（Google提供の信頼性の高いSTUNサーバーを指定して通信の遮断を防ぐ）
         const peerConfig = {
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
+                    { urls: 'stun:stun1.l.google.com:19302' }
                 ]
-            },
-            debug: 1
+            }
         };
 
         function switchTab(mode) {
@@ -117,28 +115,49 @@
             document.getElementById('roomId').value = 'mic-' + rand;
         }
 
-        async function loadDevices() {
+        // 個別出力許可とデバイス一覧取得
+        async function requestAndLoadDevices() {
             const select = document.getElementById('audioOutputSelect');
             select.innerHTML = '<option value="">読み込み中...</option>';
+
             try {
-                await navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
+                // 明示的にWeb Audioのコンテキストを作成・再開
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+
+                // デバイスラベルを開放させるためのダミー権限要求
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                tempStream.getTracks().forEach(t => t.stop());
+
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const outputs = devices.filter(d => d.kind === 'audiooutput');
 
-                select.innerHTML = '<option value="">(デフォルト出力)</option>';
+                select.innerHTML = '';
+                if (outputs.length === 0) {
+                    select.innerHTML = '<option value="">(利用可能な出力先が見つかりません)</option>';
+                    return;
+                }
+
                 outputs.forEach(d => {
                     const opt = document.createElement('option');
                     opt.value = d.deviceId;
                     opt.textContent = d.label || `スピーカー (${d.deviceId.slice(0, 5)}...)`;
                     select.appendChild(opt);
                 });
-                alert('デバイス一覧を更新しました！');
+
+                alert('出力デバイス一覧を更新しました！「CABLE Input」を選択してください。');
             } catch (e) {
+                console.error("デバイス取得エラー:", e);
                 select.innerHTML = '<option value="">(取得エラー)</option>';
+                alert('エラー: マイク/スピーカーのアクセス権限が必要です。');
             }
         }
 
-        // スマホ側（送信）
+        // --- スマホ（送信側） ---
         async function startTransmitter() {
             const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusTx');
@@ -157,147 +176,97 @@
                     });
                 }
 
-                // バックグラウンド生存用の無音ループ再生
                 const keep = document.getElementById('keepAlive');
                 keep.src = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
                 keep.play().catch(() => {});
 
-                status.innerText = '通信サーバーへ接続中...';
-                
-                if (peer) {
-                    try { peer.destroy(); } catch(e){}
-                }
+                status.innerText = 'サーバーへ接続中...';
+                if (peer) { try { peer.destroy(); } catch(e){} }
 
                 peer = new Peer(peerConfig);
 
                 peer.on('open', () => {
-                    status.innerText = 'PC側を検索・接続中...';
-                    connectToRx(id);
-                });
-
-                // サーバー切断時の自動再接続処理
-                peer.on('disconnected', () => {
-                    status.innerText = '⚠️ サーバー切断。再接続中...';
-                    if (peer && !peer.destroyed) {
-                        peer.reconnect();
+                    status.innerText = 'PC側へ接続中...';
+                    const call = peer.call('rx-' + id, localStream);
+                    if (!call) {
+                        status.innerText = '❌ PC側が見つかりません。PC側で「受信を開始」を先に押してください';
+                        btn.disabled = false;
+                        return;
                     }
+                    status.innerText = '🟢 送信中！';
                 });
 
                 peer.on('error', (err) => {
-                    console.error("PeerJS Error:", err);
-                    if (err.type === 'peer-not-found') {
-                        status.innerText = '❌ PC側が見つかりません。PC側で「受信を開始」を先に押してください';
-                    } else if (err.type === 'network' || err.type === 'disconnected' || err.type === 'webrtc') {
-                        status.innerText = '🔄 ネットワーク不調。3秒後に自動再試行...';
-                        clearTimeout(reconnectTimer);
-                        reconnectTimer = setTimeout(() => { startTransmitter(); }, 3000);
-                        return;
-                    } else {
-                        status.innerText = 'エラー: ' + err.type;
-                    }
+                    status.innerText = 'エラー: ' + err.type;
                     btn.disabled = false;
                 });
 
             } catch (e) {
-                status.innerText = '❌ マイクの許可が必要です';
+                status.innerText = '❌ マイク許可が必要です';
                 btn.disabled = false;
             }
         }
 
-        function connectToRx(id) {
-            const status = document.getElementById('statusTx');
-            const btn = document.getElementById('btnStartTx');
-
-            if (activeCall) {
-                try { activeCall.close(); } catch(e){}
-            }
-
-            activeCall = peer.call('rx-' + id, localStream);
-
-            if (!activeCall) {
-                status.innerText = '❌ PC側が見つかりません';
-                btn.disabled = false;
-                return;
-            }
-
-            status.innerText = '🟢 送信中！（ネットワーク正常）';
-
-            activeCall.on('close', () => {
-                status.innerText = '⚠️ 通信が切れました。再接続を試みます...';
-                btn.disabled = false;
-            });
-
-            activeCall.on('error', (err) => {
-                status.innerText = '⚠️ 通信エラー。再試行中...';
-                btn.disabled = false;
-            });
-        }
-
-        // PC側（受信）
+        // --- PC（受信側：タブ分離出力） ---
         function startReceiver() {
             const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusRx');
             const btn = document.getElementById('btnStartRx');
             const deviceId = document.getElementById('audioOutputSelect').value;
-            const audioEl = document.getElementById('remoteAudio');
+            const audioEl = document.getElementById('tabIsolatedAudio');
 
             if (!id) { alert('合言葉を入力してください'); return; }
 
             btn.disabled = true;
             status.innerText = '受信用待機IDを作成中...';
 
-            if (peer) {
-                try { peer.destroy(); } catch(e){}
-            }
+            if (peer) { try { peer.destroy(); } catch(e){} }
 
             peer = new Peer('rx-' + id, peerConfig);
 
             peer.on('open', () => {
-                status.innerText = '🟢 受信待機中！ スマホで送信を開始してください';
-            });
-
-            // サーバー一時切断時の自動自動復旧
-            peer.on('disconnected', () => {
-                status.innerText = '⚠️ ネットワーク一時切断。復旧中...';
-                if (peer && !peer.destroyed) {
-                    peer.reconnect();
-                }
+                status.innerText = '🟢 受信待機中！ スマホから送信を開始してください';
             });
 
             peer.on('call', (call) => {
-                status.innerText = 'スマホから着信がありました！接続確立中...';
+                status.innerText = 'スマホから着信がありました！音声パイプライン構築中...';
                 call.answer();
 
-                call.on('stream', async (stream) => {
-                    audioEl.srcObject = stream;
-                    
-                    if (deviceId && typeof audioEl.setSinkId === 'function') {
-                        try {
-                            await audioEl.setSinkId(deviceId);
-                            status.innerText = '🟢 音声受信中（CABLE Inputへルーティング成功）';
-                        } catch (e) {
-                            status.innerText = '🟢 音声受信中（デフォルト出力）';
+                call.on('stream', async (remoteStream) => {
+                    try {
+                        // Web Audio APIのパイプラインを通してこのタブ内の音声ストリームを完全にカプセル化
+                        if (!audioContext) {
+                            audioContext = new (window.AudioContext || window.webkitAudioContext)();
                         }
-                    } else {
-                        status.innerText = '🟢 音声受信中！';
-                    }
-                });
+                        if (audioContext.state === 'suspended') {
+                            await audioContext.resume();
+                        }
 
-                call.on('close', () => {
-                    status.innerText = '🟢 受信待機中（スマホからの再接続を待っています）';
+                        // 受信ストリームをWeb Audioノードに変換
+                        mediaStreamSource = audioContext.createMediaStreamSource(remoteStream);
+                        const audioDestination = audioContext.createMediaStreamDestination();
+                        mediaStreamSource.connect(audioDestination);
+
+                        // 単一要素にバインド
+                        audioEl.srcObject = audioDestination.stream;
+
+                        // 対象デバイス（CABLE Input）への独立セット
+                        if (deviceId && typeof audioEl.setSinkId === 'function') {
+                            await audioEl.setSinkId(deviceId);
+                            status.innerText = '🟢 受信中！（このタブのみ CABLE Input へ分離出力中）';
+                        } else {
+                            status.innerText = '🟢 受信中！（デフォルト出力）';
+                        }
+                    } catch (err) {
+                        console.error("ルーティングエラー:", err);
+                        audioEl.srcObject = remoteStream;
+                        status.innerText = '🟢 受信中！（直接再生）';
+                    }
                 });
             });
 
             peer.on('error', (err) => {
-                console.error("PeerJS Error:", err);
-                if (err.type === 'unavailable-id') {
-                    status.innerText = '❌ この合言葉は使用中です。別の合言葉に変更してください';
-                } else if (err.type === 'network' || err.type === 'disconnected') {
-                    status.innerText = '⚠️ ネットワーク不調。自動待帰中...';
-                    if (peer && !peer.destroyed) peer.reconnect();
-                } else {
-                    status.innerText = 'エラー: ' + err.type;
-                }
+                status.innerText = 'エラー: ' + err.type;
                 btn.disabled = false;
             });
         }
