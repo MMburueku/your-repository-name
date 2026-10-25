@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク中継器</title>
+    <title>スマホマイク中継器（同一Wi-Fi限定）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS WebRTCライブラリ -->
@@ -13,7 +13,7 @@
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">シンプル動作版</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">同一Wi-Fi（ローカル）限定モード</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -37,7 +37,7 @@
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                合言葉をPCと合わせて「マイク送信を開始」を押してください。
+                ※PCとスマホが<strong>同じWi-Fi（ローカルネットワーク）</strong>に接続されている必要があります。
             </div>
             <button type="button" id="btnStartTx" onclick="startTransmitter()" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
                 マイク送信を開始
@@ -72,10 +72,17 @@
     </div>
 
     <!-- 音声再生エレメント -->
-    <audio id="remoteAudio" autoplay controls class="hidden"></audio>
+    <audio id="remoteAudio" autoplay class="hidden"></audio>
 
     <script>
         let peer = null;
+
+        // ★重要：外部のSTUNサーバーを一切使わず、ローカル（同一ネットワーク内）のIPアドレス同士のみで接続する設定
+        const peerConfig = {
+            config: {
+                iceServers: [] // 空にすることで、外部（インターネット経由）からの接続を完全に遮断
+            }
+        };
 
         function switchTab(mode) {
             const tabTx = document.getElementById('tabTx');
@@ -105,7 +112,6 @@
             const select = document.getElementById('audioOutputSelect');
             select.innerHTML = '<option value="">読み込み中...</option>';
             try {
-                // マイクの権限だけ軽く取ってすぐ閉じる（一覧のラベル表示用）
                 const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 tempStream.getTracks().forEach(t => t.stop());
 
@@ -143,24 +149,25 @@
                     video: false 
                 });
 
-                status.innerText = 'サーバー接続中...';
+                status.innerText = 'ローカル接続中...';
                 if (peer) { try { peer.destroy(); } catch(e){} }
 
-                peer = new Peer();
+                // ローカル限定設定を適用
+                peer = new Peer(peerConfig);
 
                 peer.on('open', () => {
                     status.innerText = 'PC側へ接続中...';
                     const call = peer.call('rx-' + id, stream);
                     if (!call) {
-                        status.innerText = '❌ PC側が見つかりません。PC側で「受信を開始」を先に押してください';
+                        status.innerText = '❌ 同一Wi-Fi上のPCが見つかりません';
                         btn.disabled = false;
                         return;
                     }
-                    status.innerText = '🟢 送信中！';
+                    status.innerText = '🟢 同一Wi-Fi経由で送信中！';
                 });
 
                 peer.on('error', (err) => {
-                    status.innerText = 'エラー: ' + err.type;
+                    status.innerText = 'エラー (別ネットワークの可能性): ' + err.type;
                     btn.disabled = false;
                 });
 
@@ -185,10 +192,11 @@
 
             if (peer) { try { peer.destroy(); } catch(e){} }
 
-            peer = new Peer('rx-' + id);
+            // ローカル限定設定を適用
+            peer = new Peer('rx-' + id, peerConfig);
 
             peer.on('open', () => {
-                status.innerText = '🟢 受信待機中！ スマホから送信を開始してください';
+                status.innerText = '🟢 同一Wi-Fiからの接続待ち中...';
             });
 
             peer.on('call', (call) => {
@@ -197,18 +205,12 @@
 
                 call.on('stream', async (stream) => {
                     audioEl.srcObject = stream;
-                    
-                    // ブラウザの自動再生ブロック対策で明示的にplay呼び出し
-                    try {
-                        await audioEl.play();
-                    } catch (e) {
-                        console.log("自動再生ブロック:", e);
-                    }
+                    try { await audioEl.play(); } catch (e) {}
 
                     if (deviceId && typeof audioEl.setSinkId === 'function') {
                         try {
                             await audioEl.setSinkId(deviceId);
-                            status.innerText = '🟢 音声受信中（選択デバイスへ出力中）';
+                            status.innerText = '🟢 同一Wi-Fi音声を受信中（CABLE Inputへ出力中）';
                         } catch (e) {
                             status.innerText = '🟢 音声受信中（デフォルト出力）';
                         }
