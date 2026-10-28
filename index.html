@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク中継器（倍速・ボイチェン対応）</title>
+    <title>スマホマイク中継器（音声安定・高機能ボイチェン版）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS WebRTCライブラリ -->
@@ -13,7 +13,7 @@
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">倍速・ボイスチェンジャー搭載版</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">高音量ブースト＆多機能ボイチェン版</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -37,45 +37,42 @@
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                ※同じWi-Fiに接続してください。送信中いつでも音量・倍速・声を変更できます。
+                ※同じWi-Fiに接続してください。送信中いつでも音量や声の種類を変更できます。
             </div>
 
-            <!-- 音量増幅スライダー -->
+            <!-- 音量増幅スライダー（最大8倍 / 800%） -->
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
                 <div class="flex justify-between items-center mb-1">
-                    <label class="text-xs font-semibold text-slate-300">🎤 マイク音量（ブースト）</label>
+                    <label class="text-xs font-semibold text-slate-300">🎤 マイク音量ブースト</label>
                     <span id="gainValue" class="text-xs font-mono font-bold text-indigo-400">100%</span>
                 </div>
-                <input type="range" id="gainSlider" min="0" max="4" step="0.1" value="1" oninput="updateGain(this.value)" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                <input type="range" id="gainSlider" min="0" max="8" step="0.2" value="1" oninput="updateGain(this.value)" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+                    <span>0%</span>
+                    <span>100% (標準)</span>
+                    <span>400% (4倍)</span>
+                    <span>800% (8倍)</span>
+                </div>
+            </div>
+
+            <!-- 声のプリセット選択ボタン -->
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+                <label class="block text-xs font-semibold text-slate-300 mb-2">🎭 声のタイプ（プリセット）</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button type="button" onclick="setPreset(0, 'normal')" id="presetNormal" class="py-1.5 px-2 bg-indigo-600 text-white rounded text-xs font-bold transition">標準</button>
+                    <button type="button" onclick="setPreset(6, 'high')" id="presetHigh" class="py-1.5 px-2 bg-slate-700 text-slate-300 rounded text-xs font-medium hover:bg-slate-600 transition">高音 (女声風)</button>
+                    <button type="button" onclick="setPreset(-7, 'low')" id="presetLow" class="py-1.5 px-2 bg-slate-700 text-slate-300 rounded text-xs font-medium hover:bg-slate-600 transition">低音 (男声風)</button>
+                    <button type="button" onclick="setPreset(-12, 'monster')" id="presetMonster" class="py-1.5 px-2 bg-slate-700 text-slate-300 rounded text-xs font-medium hover:bg-slate-600 transition">超低音 (魔王)</button>
+                </div>
             </div>
 
             <!-- 倍速（再生速度）スライダー -->
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
                 <div class="flex justify-between items-center mb-1">
                     <label class="text-xs font-semibold text-slate-300">⏩ 音声の速度（倍速）</label>
-                    <span id="speedValue" class="text-xs font-mono font-bold text-indigo-400">1.0x (等速)</span>
+                    <span id="speedValue" class="text-xs font-mono font-bold text-indigo-400">1.0x</span>
                 </div>
                 <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateSpeed(this.value)" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
-                <div class="flex justify-between text-[10px] text-slate-500 mt-1">
-                    <span>0.5x (スロー)</span>
-                    <span>1.0x</span>
-                    <span>1.5x</span>
-                    <span>2.0x (2倍速)</span>
-                </div>
-            </div>
-
-            <!-- ボイスチェンジャー（ピッチ調整） -->
-            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
-                <div class="flex justify-between items-center mb-1">
-                    <label class="text-xs font-semibold text-slate-300">🎭 ボイスチェンジ（声の高さ）</label>
-                    <span id="pitchValue" class="text-xs font-mono font-bold text-indigo-400">標準 (±0)</span>
-                </div>
-                <input type="range" id="pitchSlider" min="-12" max="12" step="1" value="0" oninput="updatePitch(this.value)" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
-                <div class="flex justify-between text-[10px] text-slate-500 mt-1">
-                    <span>低音 (-12)</span>
-                    <span>標準 (0)</span>
-                    <span>高音 (+12)</span>
-                </div>
             </div>
 
             <button type="button" id="btnStartTx" onclick="toggleTransmitter()" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
@@ -87,7 +84,7 @@
         <!-- パネル2：PC（受信側） -->
         <div id="panelRx" class="space-y-4 hidden">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                「受信を開始」を押したあとでも、下のプルダウンから<strong>いつでも自由に出力先を変更</strong>できます。
+                「受信スタンバイを開始」を押したあとでも、下のプルダウンから<strong>いつでも自由に出力先を変更</strong>できます。
             </div>
 
             <div>
@@ -118,7 +115,7 @@
         
         let gainValue = 1.0;
         let speedValue = 1.0;
-        let pitchValue = 0;
+        let pitchValue = 0; // 半音単位 (-12 〜 +12)
 
         const peerConfig = {
             config: {
@@ -190,13 +187,24 @@
             document.getElementById('speedValue').innerText = speedValue.toFixed(1) + 'x';
         }
 
-        function updatePitch(val) {
-            pitchValue = parseInt(val);
-            const label = pitchValue > 0 ? `+${pitchValue} (高音)` : pitchValue < 0 ? `${pitchValue} (低音)` : '標準 (±0)';
-            document.getElementById('pitchValue').innerText = label;
+        // プリセットボタン切り替え
+        function setPreset(pitch, type) {
+            pitchValue = pitch;
+
+            // ボタンの見た目アクティブ切り替え
+            ['Normal', 'High', 'Low', 'Monster'].forEach(name => {
+                const btn = document.getElementById('preset' + name);
+                if (btn) {
+                    btn.className = "py-1.5 px-2 bg-slate-700 text-slate-300 rounded text-xs font-medium hover:bg-slate-600 transition";
+                }
+            });
+            const activeBtn = document.getElementById('preset' + type.charAt(0).toUpperCase() + type.slice(1));
+            if (activeBtn) {
+                activeBtn.className = "py-1.5 px-2 bg-indigo-600 text-white rounded text-xs font-bold transition";
+            }
         }
 
-        // 倍速＆ピッチ変更を同時に行うリアルタイムエフェクトプロセッサー
+        // 音声エフェクトプロセッサー（倍速・ピッチ変調）
         function createEffectProcessor(ctx) {
             const bufferSize = 2048;
             const node = ctx.createScriptProcessor(bufferSize, 1, 1);
@@ -205,7 +213,6 @@
                 const input = e.inputBuffer.getChannelData(0);
                 const output = e.outputBuffer.getChannelData(0);
 
-                // ピッチ補正の倍率計算 (-12 〜 +12 半音)
                 const pitchRatio = Math.pow(2, pitchValue / 12);
                 const totalRatio = speedValue * pitchRatio;
 
@@ -243,8 +250,13 @@
                 keep.src = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
                 keep.play().catch(() => {});
 
+                // マイク入力の確実な取得設定
                 localStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }, 
+                    audio: { 
+                        echoCancellation: true, 
+                        noiseSuppression: true, 
+                        autoGainControl: true 
+                    }, 
                     video: false 
                 });
 
@@ -258,7 +270,7 @@
                 const effectProcessor = createEffectProcessor(audioCtx);
                 const destination = audioCtx.createMediaStreamDestination();
                 
-                // マイク -> 音量調整 -> 倍速＆ボイチェンエフェクト -> 送信先
+                // ルート接続：マイク -> 音量ブースト -> エフェクト(倍速・ボイチェン) -> 送信先
                 source.connect(gainNode);
                 gainNode.connect(effectProcessor);
                 effectProcessor.connect(destination);
@@ -280,7 +292,7 @@
                     btn.disabled = false;
                     btn.innerText = 'マイク送信を停止';
                     btn.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
-                    status.innerText = '🟢 送信中！（倍速・ボイチェン有効）';
+                    status.innerText = '🟢 送信中！（音声安定・高ブースト有効）';
                 });
 
                 peer.on('error', (err) => {
@@ -289,6 +301,7 @@
                 });
 
             } catch (e) {
+                console.error(e);
                 status.innerText = '❌ マイクの許可が必要です';
                 btn.disabled = false;
             }
@@ -302,7 +315,7 @@
             if (typeof audioEl.setSinkId === 'function') {
                 try {
                     await audioEl.setSinkId(deviceId);
-                    status.innerText = '🟢 受信中（出力先を変更しました）';
+                    status.innerText = '🟢 受信中（出力先をリアルタイム変更しました）';
                 } catch (e) {
                     console.error("出力先変更エラー:", e);
                 }
