@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク中継器（同一Wi-Fi限定）</title>
+    <title>スマホマイク中継器（音量調整機能付き）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS WebRTCライブラリ -->
@@ -13,7 +13,7 @@
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">同一Wi-Fi（ローカル）限定モード</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">同一Wi-Fi限定 / 音量ブースト対応版</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -37,8 +37,25 @@
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                ※PCとスマホが<strong>同じWi-Fi（ローカルネットワーク）</strong>に接続されている必要があります。
+                ※同じWi-Fiに接続してください。下のスライダーでマイク音量を大きく増幅できます。
             </div>
+
+            <!-- 音量増幅スライダー -->
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-300">🎤 マイク音量（ブースト）</label>
+                    <span id="gainValue" class="text-xs font-mono font-bold text-indigo-400">100% (標準)</span>
+                </div>
+                <input type="range" id="gainSlider" min="0" max="4" step="0.1" value="1" oninput="updateGain(this.value)" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+                    <span>ミュート</span>
+                    <span>100%</span>
+                    <span>200%</span>
+                    <span>300%</span>
+                    <span>400% (最大)</span>
+                </div>
+            </div>
+
             <button type="button" id="btnStartTx" onclick="startTransmitter()" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
                 マイク送信を開始
             </button>
@@ -76,11 +93,13 @@
 
     <script>
         let peer = null;
+        let audioCtx = null;
+        let gainNode = null;
 
-        // ★重要：外部のSTUNサーバーを一切使わず、ローカル（同一ネットワーク内）のIPアドレス同士のみで接続する設定
+        // 同一Wi-Fi限定設定
         const peerConfig = {
             config: {
-                iceServers: [] // 空にすることで、外部（インターネット経由）からの接続を完全に遮断
+                iceServers: []
             }
         };
 
@@ -106,6 +125,15 @@
         function generateId() {
             const rand = Math.floor(1000 + Math.random() * 9000);
             document.getElementById('roomId').value = 'mic-' + rand;
+        }
+
+        // 音量（ゲイン）リアルタイム変更
+        function updateGain(val) {
+            const percent = Math.round(val * 100);
+            document.getElementById('gainValue').innerText = percent + '% ' + (percent === 100 ? '(標準)' : percent > 100 ? '(増幅中)' : '');
+            if (gainNode) {
+                gainNode.gain.value = val;
+            }
         }
 
         async function loadDevices() {
@@ -137,6 +165,7 @@
             const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusTx');
             const btn = document.getElementById('btnStartTx');
+            const gainVal = parseFloat(document.getElementById('gainSlider').value);
 
             if (!id) { alert('合言葉を入力してください'); return; }
 
@@ -144,30 +173,42 @@
             status.innerText = 'マイクを取得中...';
 
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: true, noiseSuppression: true }, 
+                // 原音マイクを取得
+                const rawStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }, 
                     video: false 
                 });
+
+                // Web Audio APIで音量を増幅する処理ノードを構築
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioCtx.createMediaStreamSource(rawStream);
+                gainNode = audioCtx.createGain();
+                gainNode.gain.value = gainVal;
+
+                const destination = audioCtx.createMediaStreamDestination();
+                source.connect(gainNode);
+                
+                // 増幅後の音声ストリームを作成
+                const processedStream = destination.stream;
 
                 status.innerText = 'ローカル接続中...';
                 if (peer) { try { peer.destroy(); } catch(e){} }
 
-                // ローカル限定設定を適用
                 peer = new Peer(peerConfig);
 
                 peer.on('open', () => {
                     status.innerText = 'PC側へ接続中...';
-                    const call = peer.call('rx-' + id, stream);
+                    const call = peer.call('rx-' + id, processedStream);
                     if (!call) {
                         status.innerText = '❌ 同一Wi-Fi上のPCが見つかりません';
                         btn.disabled = false;
                         return;
                     }
-                    status.innerText = '🟢 同一Wi-Fi経由で送信中！';
+                    status.innerText = '🟢 送信中！（音量ブースト有効）';
                 });
 
                 peer.on('error', (err) => {
-                    status.innerText = 'エラー (別ネットワークの可能性): ' + err.type;
+                    status.innerText = 'エラー: ' + err.type;
                     btn.disabled = false;
                 });
 
@@ -192,7 +233,6 @@
 
             if (peer) { try { peer.destroy(); } catch(e){} }
 
-            // ローカル限定設定を適用
             peer = new Peer('rx-' + id, peerConfig);
 
             peer.on('open', () => {
