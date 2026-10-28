@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク中継器（リアルタイム調整版）</title>
+    <title>スマホマイク中継器（倍速・ボイチェン対応）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS WebRTCライブラリ -->
@@ -13,7 +13,7 @@
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">リアルタイム音量調整・安定版</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">倍速・ボイスチェンジャー搭載版</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -37,22 +37,44 @@
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                ※同じWi-Fiに接続してください。送信中いつでも下のスライダーで音量を変更できます。
+                ※同じWi-Fiに接続してください。送信中いつでも音量・倍速・声を変更できます。
             </div>
 
-            <!-- 音量増幅スライダー（送信中いつでも操作可能） -->
+            <!-- 音量増幅スライダー -->
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
                 <div class="flex justify-between items-center mb-1">
                     <label class="text-xs font-semibold text-slate-300">🎤 マイク音量（ブースト）</label>
-                    <span id="gainValue" class="text-xs font-mono font-bold text-indigo-400">100% (標準)</span>
+                    <span id="gainValue" class="text-xs font-mono font-bold text-indigo-400">100%</span>
                 </div>
                 <input type="range" id="gainSlider" min="0" max="4" step="0.1" value="1" oninput="updateGain(this.value)" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+
+            <!-- 倍速（再生速度）スライダー -->
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-300">⏩ 音声の速度（倍速）</label>
+                    <span id="speedValue" class="text-xs font-mono font-bold text-indigo-400">1.0x (等速)</span>
+                </div>
+                <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateSpeed(this.value)" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
                 <div class="flex justify-between text-[10px] text-slate-500 mt-1">
-                    <span>0%</span>
-                    <span>100%</span>
-                    <span>200%</span>
-                    <span>300%</span>
-                    <span>400%</span>
+                    <span>0.5x (スロー)</span>
+                    <span>1.0x</span>
+                    <span>1.5x</span>
+                    <span>2.0x (2倍速)</span>
+                </div>
+            </div>
+
+            <!-- ボイスチェンジャー（ピッチ調整） -->
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-300">🎭 ボイスチェンジ（声の高さ）</label>
+                    <span id="pitchValue" class="text-xs font-mono font-bold text-indigo-400">標準 (±0)</span>
+                </div>
+                <input type="range" id="pitchSlider" min="-12" max="12" step="1" value="0" oninput="updatePitch(this.value)" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+                    <span>低音 (-12)</span>
+                    <span>標準 (0)</span>
+                    <span>高音 (+12)</span>
                 </div>
             </div>
 
@@ -65,24 +87,18 @@
         <!-- パネル2：PC（受信側） -->
         <div id="panelRx" class="space-y-4 hidden">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                1. 「出力デバイス一覧を読み込む」を押す<br>
-                2. 「CABLE Input」を選択<br>
-                3. 「受信を開始」を押す
+                「受信を開始」を押したあとでも、下のプルダウンから<strong>いつでも自由に出力先を変更</strong>できます。
             </div>
 
-            <button type="button" onclick="loadDevices()" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg transition text-xs shadow">
-                1. 出力デバイス一覧を読み込む
-            </button>
-
             <div>
-                <label class="block text-xs font-semibold text-slate-400 mb-1">出力デバイス選択</label>
-                <select id="audioOutputSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-xs text-white">
-                    <option value="">(まずは上のボタンを押してください)</option>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">出力デバイス選択（リアルタイム変更可）</label>
+                <select id="audioOutputSelect" onchange="changeOutputDevice(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                    <option value="">(読み込み中...)</option>
                 </select>
             </div>
 
-            <button type="button" id="btnStartRx" onclick="startReceiver()" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
-                2. 受信を開始
+            <button type="button" id="btnStartRx" onclick="toggleReceiver()" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
+                受信スタンバイを開始
             </button>
             <div id="statusRx" class="text-center text-xs text-amber-400 font-mono p-2 bg-slate-900/80 rounded">状態: 待機中</div>
         </div>
@@ -98,6 +114,11 @@
         let gainNode = null;
         let localStream = null;
         let isTransmitting = false;
+        let isReceiving = false;
+        
+        let gainValue = 1.0;
+        let speedValue = 1.0;
+        let pitchValue = 0;
 
         const peerConfig = {
             config: {
@@ -129,18 +150,12 @@
             document.getElementById('roomId').value = 'mic-' + rand;
         }
 
-        // 送信中いつでもリアルタイムで音量を変更できる関数
-        function updateGain(val) {
-            const percent = Math.round(val * 100);
-            document.getElementById('gainValue').innerText = percent + '% ' + (percent === 100 ? '(標準)' : percent > 100 ? '(増幅中)' : '');
-            if (gainNode) {
-                gainNode.gain.setValueAtTime(val, audioCtx.currentTime);
-            }
-        }
+        window.addEventListener('DOMContentLoaded', async () => {
+            await loadDevicesIntoSelect();
+        });
 
-        async function loadDevices() {
+        async function loadDevicesIntoSelect() {
             const select = document.getElementById('audioOutputSelect');
-            select.innerHTML = '<option value="">読み込み中...</option>';
             try {
                 const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 tempStream.getTracks().forEach(t => t.stop());
@@ -155,24 +170,61 @@
                     opt.textContent = d.label || `スピーカー (${d.deviceId.slice(0, 5)}...)`;
                     select.appendChild(opt);
                 });
-                alert('デバイス一覧を読み込みました！');
             } catch (e) {
-                select.innerHTML = '<option value="">(取得失敗)</option>';
-                alert('エラー: マイク権限を許可してください');
+                select.innerHTML = '<option value="">(デバイス取得エラー・要マイク許可)</option>';
             }
         }
 
-        // スマホ側（送信の開始・停止切り替え）
+        // --- 送信側のパラメータリアルタイム変更 ---
+        function updateGain(val) {
+            gainValue = parseFloat(val);
+            const percent = Math.round(gainValue * 100);
+            document.getElementById('gainValue').innerText = percent + '%';
+            if (gainNode && audioCtx) {
+                gainNode.gain.setValueAtTime(gainValue, audioCtx.currentTime);
+            }
+        }
+
+        function updateSpeed(val) {
+            speedValue = parseFloat(val);
+            document.getElementById('speedValue').innerText = speedValue.toFixed(1) + 'x';
+        }
+
+        function updatePitch(val) {
+            pitchValue = parseInt(val);
+            const label = pitchValue > 0 ? `+${pitchValue} (高音)` : pitchValue < 0 ? `${pitchValue} (低音)` : '標準 (±0)';
+            document.getElementById('pitchValue').innerText = label;
+        }
+
+        // 倍速＆ピッチ変更を同時に行うリアルタイムエフェクトプロセッサー
+        function createEffectProcessor(ctx) {
+            const bufferSize = 2048;
+            const node = ctx.createScriptProcessor(bufferSize, 1, 1);
+
+            node.onaudioprocess = function(e) {
+                const input = e.inputBuffer.getChannelData(0);
+                const output = e.outputBuffer.getChannelData(0);
+
+                // ピッチ補正の倍率計算 (-12 〜 +12 半音)
+                const pitchRatio = Math.pow(2, pitchValue / 12);
+                const totalRatio = speedValue * pitchRatio;
+
+                for (let i = 0; i < input.length; i++) {
+                    const index = Math.floor(i * totalRatio) % input.length;
+                    output[i] = input[index];
+                }
+            };
+            return node;
+        }
+
         async function toggleTransmitter() {
             const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusTx');
             const btn = document.getElementById('btnStartTx');
-            const currentGain = parseFloat(document.getElementById('gainSlider').value);
 
             if (!id) { alert('合言葉を入力してください'); return; }
 
             if (isTransmitting) {
-                // 停止処理
                 if (peer) { try { peer.destroy(); } catch(e){} }
                 if (localStream) { localStream.getTracks().forEach(t => t.stop()); }
                 if (audioCtx) { audioCtx.close(); }
@@ -187,30 +239,29 @@
             status.innerText = 'マイクを取得中...';
 
             try {
-                // バックグラウンド生存用の無音再生
                 const keep = document.getElementById('keepAlive');
                 keep.src = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
                 keep.play().catch(() => {});
 
-                // 原音マイク取得
                 localStream = await navigator.mediaDevices.getUserMedia({ 
                     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }, 
                     video: false 
                 });
 
-                // Web Audio APIのセットアップ（ユーザー操作をトリガーに即座にコンテキストを有効化）
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                if (audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
-                }
+                if (audioCtx.state === 'suspended') { await audioCtx.resume(); }
 
                 const source = audioCtx.createMediaStreamSource(localStream);
                 gainNode = audioCtx.createGain();
-                gainNode.gain.setValueAtTime(currentGain, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(gainValue, audioCtx.currentTime);
 
+                const effectProcessor = createEffectProcessor(audioCtx);
                 const destination = audioCtx.createMediaStreamDestination();
+                
+                // マイク -> 音量調整 -> 倍速＆ボイチェンエフェクト -> 送信先
                 source.connect(gainNode);
-                gainNode.connect(destination);
+                gainNode.connect(effectProcessor);
+                effectProcessor.connect(destination);
 
                 status.innerText = 'ローカル接続中...';
                 if (peer) { try { peer.destroy(); } catch(e){} }
@@ -229,7 +280,7 @@
                     btn.disabled = false;
                     btn.innerText = 'マイク送信を停止';
                     btn.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
-                    status.innerText = '🟢 送信中！（音量リアルタイム調整可能）';
+                    status.innerText = '🟢 送信中！（倍速・ボイチェン有効）';
                 });
 
                 peer.on('error', (err) => {
@@ -238,14 +289,27 @@
                 });
 
             } catch (e) {
-                console.error(e);
                 status.innerText = '❌ マイクの許可が必要です';
                 btn.disabled = false;
             }
         }
 
-        // PC側（受信）
-        function startReceiver() {
+        // --- 受信側（PC） ---
+        async function changeOutputDevice(deviceId) {
+            const audioEl = document.getElementById('remoteAudio');
+            const status = document.getElementById('statusRx');
+
+            if (typeof audioEl.setSinkId === 'function') {
+                try {
+                    await audioEl.setSinkId(deviceId);
+                    status.innerText = '🟢 受信中（出力先を変更しました）';
+                } catch (e) {
+                    console.error("出力先変更エラー:", e);
+                }
+            }
+        }
+
+        function toggleReceiver() {
             const id = document.getElementById('roomId').value.trim();
             const status = document.getElementById('statusRx');
             const btn = document.getElementById('btnStartRx');
@@ -253,6 +317,15 @@
             const audioEl = document.getElementById('remoteAudio');
 
             if (!id) { alert('合言葉を入力してください'); return; }
+
+            if (isReceiving) {
+                if (peer) { try { peer.destroy(); } catch(e){} }
+                isReceiving = false;
+                btn.innerText = '受信スタンバイを開始';
+                btn.className = "w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
+                status.innerText = '状態: 待機停止中';
+                return;
+            }
 
             btn.disabled = true;
             status.innerText = '受信用IDを作成中...';
@@ -262,6 +335,10 @@
             peer = new Peer('rx-' + id, peerConfig);
 
             peer.on('open', () => {
+                isReceiving = true;
+                btn.disabled = false;
+                btn.innerText = '受信を停止';
+                btn.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
                 status.innerText = '🟢 同一Wi-Fiからの接続待ち中...';
             });
 
@@ -276,7 +353,7 @@
                     if (deviceId && typeof audioEl.setSinkId === 'function') {
                         try {
                             await audioEl.setSinkId(deviceId);
-                            status.innerText = '🟢 音声受信中（CABLE Inputへ出力中）';
+                            status.innerText = '🟢 音声受信中（指定出力先へ送信中）';
                         } catch (e) {
                             status.innerText = '🟢 音声受信中（デフォルト出力）';
                         }
