@@ -3,496 +3,361 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク中継器 (AudioWorklet DSP & Mixer)</title>
+    <title>スマホマイク中継器（高安定オーディオミキサー版）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- PeerJS WebRTC -->
+    <!-- PeerJS WebRTCライブラリ -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <style>
-        /* Custom scrollbar & UI aesthetics */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        .slider-thumb::-webkit-slider-thumb {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: #818cf8;
-            cursor: pointer;
-        }
-    </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-3 sm:p-6 font-sans">
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 selection:bg-indigo-500 selection:text-white">
 
-    <!-- メインコンテナ -->
-    <div class="max-w-lg w-full bg-slate-900/90 backdrop-blur-md rounded-2xl shadow-2xl p-5 border border-slate-800">
-        
-        <!-- ヘッダー -->
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-            <div>
-                <h1 class="text-lg sm:text-xl font-black tracking-tight text-indigo-400 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 016 0v6a3 3 0 01-3 3z"></path></svg>
-                    スマホマイク中継器 <span class="text-[10px] bg-indigo-950 text-indigo-300 font-mono px-2 py-0.5 rounded-full border border-indigo-800/60">DSP Worklet</span>
-                </h1>
-                <p class="text-[11px] text-slate-400">AudioWorklet低遅延処理 & P2P音声ミキサー</p>
-            </div>
-            <div id="connectionStatusBadge" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700">
-                <span class="w-2 h-2 rounded-full bg-slate-500 inline-block" id="statusDot"></span>
-                <span id="statusBadgeText">OFFLINE</span>
-            </div>
-        </div>
+    <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
+        <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
+        <p class="text-xs text-slate-400 mb-5 text-center">独立音量調整・オーディオデバイス直接ミキサー</p>
 
-        <!-- Mode Selector Tabs -->
-        <div class="grid grid-cols-2 gap-2 mb-4 bg-slate-950 p-1 rounded-xl border border-slate-800/80">
-            <button type="button" id="tabTx" class="py-2 rounded-lg font-bold text-xs bg-indigo-600 text-white shadow-md transition-all flex items-center justify-center gap-1.5">
-                <span>📱 スマホ（送信モード）</span>
+        <!-- タブ切り替えボタン -->
+        <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
+            <button type="button" id="tabTx" class="py-2.5 rounded-md font-bold text-xs bg-indigo-600 text-white shadow transition-all">
+                スマホ（送信）
             </button>
-            <button type="button" id="tabRx" class="py-2 rounded-lg font-bold text-xs text-slate-400 hover:text-white transition-all flex items-center justify-center gap-1.5">
-                <span>💻 PC（受信モード）</span>
+            <button type="button" id="tabRx" class="py-2.5 rounded-md font-bold text-xs text-slate-400 hover:text-white transition-all">
+                PC（受信）
             </button>
         </div>
 
-        <!-- Room ID Setup -->
-        <div class="mb-4 bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-1.5">
-            <label class="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">合言葉 (Room ID)</label>
+        <!-- ルームID入力エリア -->
+        <div class="mb-5 bg-slate-900/60 p-3 rounded-lg border border-slate-700">
+            <label class="block text-xs font-semibold text-slate-400 mb-1">合言葉（ルームID）</label>
             <div class="flex gap-2">
-                <input type="text" id="roomId" value="mic-room-777" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
-                <button type="button" id="btnGenId" class="bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium transition border border-slate-700">自動生成</button>
+                <input type="text" id="roomId" value="mic-room-777" class="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                <button type="button" id="btnGenId" class="bg-slate-700 hover:bg-slate-600 active:bg-slate-800 px-3 py-1.5 rounded text-xs font-medium transition">自動生成</button>
             </div>
         </div>
 
-        <!-- PANEL 1: TRANSMITTER (MOBILE) -->
+        <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
-            
-            <!-- Gain Control -->
-            <div class="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800/80">
-                <div class="flex justify-between items-center mb-1.5">
-                    <label class="text-xs font-semibold text-slate-200 flex items-center gap-1">
-                        <span>🎤 マイクブースト (Gain)</span>
-                    </label>
+            <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
+                ※同じWi-Fiに接続してください。背景で別アプリ（Discord等）を開いても音声接続を極力維持します。
+            </div>
+
+            <!-- スマホマイク音量増幅スライダー -->
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-300">🎤 スマホマイク音量ブースト</label>
                     <span id="gainValue" class="text-xs font-mono font-bold text-indigo-400">100%</span>
                 </div>
-                <input type="range" id="gainSlider" min="0" max="8" step="0.1" value="1" class="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer slider-thumb">
-                <div class="flex justify-between text-[9px] text-slate-500 font-mono mt-1">
-                    <span>0% (ミュート)</span>
+                <input type="range" id="gainSlider" min="0" max="8" step="0.1" value="1" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                <div class="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
+                    <span>0%</span>
                     <span>100% (標準)</span>
                     <span>400%</span>
-                    <span>800% (極大)</span>
+                    <span>800% (最大)</span>
                 </div>
             </div>
 
-            <!-- Equalizer (Parametric 3-Band) -->
-            <div class="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800/80 space-y-2.5">
-                <div class="text-xs font-semibold text-slate-200 flex justify-between items-center">
-                    <span>🎚️ 3バンド・トーンコントロール (EQ)</span>
-                    <button type="button" id="btnResetEq" class="text-[10px] text-indigo-400 hover:underline">リセット</button>
-                </div>
-                <div class="grid grid-cols-3 gap-2">
-                    <div class="bg-slate-900 p-2 rounded-lg border border-slate-800 text-center">
-                        <span class="text-[10px] text-slate-400 block mb-1">Low (低音)</span>
-                        <input type="range" id="eqLow" min="-12" max="12" step="1" value="0" class="w-full accent-indigo-500 h-1 bg-slate-700 rounded appearance-none cursor-pointer">
-                        <span id="eqLowVal" class="text-[10px] font-mono text-indigo-300">0dB</span>
-                    </div>
-                    <div class="bg-slate-900 p-2 rounded-lg border border-slate-800 text-center">
-                        <span class="text-[10px] text-slate-400 block mb-1">Mid (中音)</span>
-                        <input type="range" id="eqMid" min="-12" max="12" step="1" value="0" class="w-full accent-indigo-500 h-1 bg-slate-700 rounded appearance-none cursor-pointer">
-                        <span id="eqMidVal" class="text-[10px] font-mono text-indigo-300">0dB</span>
-                    </div>
-                    <div class="bg-slate-900 p-2 rounded-lg border border-slate-700 text-center">
-                        <span class="text-[10px] text-slate-400 block mb-1">High (高音)</span>
-                        <input type="range" id="eqHigh" min="-12" max="12" step="1" value="0" class="w-full accent-indigo-500 h-1 bg-slate-700 rounded appearance-none cursor-pointer">
-                        <span id="eqHighVal" class="text-[10px] font-mono text-indigo-300">0dB</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Pitch Shift & Voice FX -->
-            <div class="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800/80 space-y-2">
-                <label class="block text-xs font-semibold text-slate-200">🎭 ボイスチェンジ (Pitch Shift)</label>
+            <!-- ボイスチェンジャー プリセット -->
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+                <label class="block text-xs font-semibold text-slate-300 mb-2">🎭 声のタイプ（プリセット）</label>
                 <div class="grid grid-cols-2 gap-2">
-                    <button type="button" data-pitch="0" class="preset-btn py-1.5 px-2 bg-indigo-600 text-white rounded-lg text-xs font-bold transition border border-indigo-500">標準 (±0)</button>
-                    <button type="button" data-pitch="6" class="preset-btn py-1.5 px-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-700 transition border border-slate-700">高音 (+6 半音)</button>
-                    <button type="button" data-pitch="-6" class="preset-btn py-1.5 px-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-700 transition border border-slate-700">低音 (-6 半音)</button>
-                    <button type="button" data-pitch="-12" class="preset-btn py-1.5 px-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-700 transition border border-slate-700">魔王 (-12 半音)</button>
+                    <button type="button" data-pitch="0" class="preset-btn py-1.5 px-2 bg-indigo-600 text-white rounded text-xs font-bold transition">標準 (±0)</button>
+                    <button type="button" data-pitch="6" class="preset-btn py-1.5 px-2 bg-slate-700 text-slate-300 rounded text-xs font-medium hover:bg-slate-600 transition">高音 (+6 女声風)</button>
+                    <button type="button" data-pitch="-7" class="preset-btn py-1.5 px-2 bg-slate-700 text-slate-300 rounded text-xs font-medium hover:bg-slate-600 transition">低音 (-7 男声風)</button>
+                    <button type="button" data-pitch="-12" class="preset-btn py-1.5 px-2 bg-slate-700 text-slate-300 rounded text-xs font-medium hover:bg-slate-600 transition">超低音 (-12 魔王)</button>
                 </div>
             </div>
 
-            <!-- Speed Shift -->
-            <div class="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800/80">
+            <!-- 再生速度（倍速）スライダー -->
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
                 <div class="flex justify-between items-center mb-1">
-                    <label class="text-xs font-semibold text-slate-200">⏩ 再生速度 (Speed)</label>
+                    <label class="text-xs font-semibold text-slate-300">⏩ 音声速度（倍速）</label>
                     <span id="speedValue" class="text-xs font-mono font-bold text-indigo-400">1.0x</span>
                 </div>
-                <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.1" value="1.0" class="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer slider-thumb">
+                <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.1" value="1.0" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
             </div>
 
-            <button type="button" id="btnStartTx" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-lg text-sm flex items-center justify-center gap-2">
-                <span>マイク送信を開始</span>
+            <button type="button" id="btnStartTx" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
+                マイク送信を開始
             </button>
-            <div id="statusTx" class="text-center text-xs text-amber-400 font-mono p-2 bg-slate-950/80 rounded-lg border border-slate-800">状態: 停止中</div>
+            <div id="statusTx" class="text-center text-xs text-amber-400 font-mono p-2 bg-slate-900/80 rounded border border-slate-800">状態: 待機中</div>
         </div>
 
-        <!-- PANEL 2: RECEIVER & PC MIXER -->
+        <!-- パネル2：PC（受信側） -->
         <div id="panelRx" class="space-y-4 hidden">
-            
-            <!-- Virtual Signal Generator (Fallback Mixer) -->
-            <div class="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800/80 space-y-3">
-                <div class="flex items-center justify-between">
-                    <label class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                        <span>🧪 PC側音源ジェネレーター/BGM合成</span>
-                    </label>
-                    <input type="checkbox" id="enableGenAudio" class="w-4 h-4 accent-indigo-500 cursor-pointer">
-                </div>
-                <p class="text-[10px] text-slate-400">※画面共有が制限される環境向け：ブラウザ内部でシンセ/テスト信号を生成してマイク音源に合成出力します。</p>
-
-                <div id="genControlsContainer" class="hidden space-y-2 pt-2 border-t border-slate-800">
-                    <div class="grid grid-cols-2 gap-2">
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1">音源タイプ</label>
-                            <select id="genType" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white">
-                                <option value="sine">サイン波 (440Hz)</option>
-                                <option value="pinknoise">ピンクノイズ (環境音)</option>
-                                <option value="sweep">周波数スイープ</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1">合成音量</label>
-                            <input type="range" id="genVol" min="0" max="1" step="0.05" value="0.3" class="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded mt-2">
-                        </div>
-                    </div>
-                </div>
+            <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg space-y-1">
+                <div class="font-bold text-indigo-300">🔊 PC音声キャプチャ＆ルーティング</div>
+                <p>画面共有に頼らず、PCの「ステレオミキサー」や「VB-Cable Output」を直接指定してBGM/音声をミックスできます。</p>
             </div>
 
-            <!-- Screen / Tab Share Mixer -->
-            <div class="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800/80 space-y-3">
+            <!-- PC側システム音キャプチャ設定 -->
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700 space-y-3">
                 <div class="flex items-center justify-between">
-                    <label class="text-xs font-semibold text-slate-200">🎛️ PCアプリ・タブ音声キャプチャ</label>
+                    <label class="text-xs font-semibold text-slate-200 cursor-pointer select-none" for="mixSystemAudio">
+                        🎛️ PC内部音声（BGM/ソフト音）をミックス
+                    </label>
                     <input type="checkbox" id="mixSystemAudio" class="w-4 h-4 accent-indigo-500 cursor-pointer">
                 </div>
                 
-                <div id="sourceTargetContainer" class="hidden space-y-2 pt-2 border-t border-slate-800">
-                    <button type="button" id="btnSelectSource" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 rounded-lg text-xs font-medium transition border border-slate-700">
-                        🎯 音声共有付きタブ/画面を選択
-                    </button>
-                    <div id="selectedSourceLabel" class="text-[10px] text-indigo-300 font-mono text-center truncate">選択中: なし</div>
+                <div id="sourceTargetContainer" class="hidden space-y-3 pt-2 border-t border-slate-800">
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-300 mb-1">PC側の音声入力ソース（ステレオミキサー / CABLE Output）</label>
+                        <select id="audioInputSelect" class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="">(デバイス読み込み中...)</option>
+                        </select>
+                    </div>
+
+                    <!-- PC音声専用音量調整スライダー -->
+                    <div class="bg-slate-950/60 p-2.5 rounded border border-slate-800">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-[11px] font-semibold text-slate-300">🔊 PC音声（BGM）音量コントロール</label>
+                            <span id="sysGainValue" class="text-[11px] font-mono font-bold text-indigo-400">100%</span>
+                        </div>
+                        <input type="range" id="sysGainSlider" min="0" max="3" step="0.1" value="1" class="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
                 </div>
             </div>
 
-            <!-- Output Device Setup -->
-            <div class="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800/80">
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">出力デバイス選択 (VB-Audio Cable等)</label>
-                <select id="audioOutputSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
-                    <option value="">(デフォルト出力)</option>
+            <!-- 音声出力デバイス選択 -->
+            <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">出力先デバイス（VB-Cable Input / スピーカー）</label>
+                <select id="audioOutputSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                    <option value="">(デバイス読み込み中...)</option>
                 </select>
             </div>
 
-            <button type="button" id="btnStartRx" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-lg text-sm flex items-center justify-center gap-2">
-                <span>受信スタンバイを開始</span>
+            <button type="button" id="btnStartRx" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg">
+                受信スタンバイを開始
             </button>
-            <div id="statusRx" class="text-center text-xs text-amber-400 font-mono p-2 bg-slate-950/80 rounded-lg border border-slate-800">状態: 停止中</div>
+            <div id="statusRx" class="text-center text-xs text-amber-400 font-mono p-2 bg-slate-900/80 rounded border border-slate-800">状態: 待機中</div>
         </div>
-
     </div>
 
-    <!-- Hidden Audio/Video elements for Keepalive & Output -->
+    <!-- 非表示オーディオエレメント -->
     <audio id="remoteAudio" autoplay class="hidden"></audio>
     <audio id="keepAlive" loop class="hidden"></audio>
 
     <script>
-        // --- INLINE AUDIO WORKLET DSP CODE GENERATOR ---
-        const workletCode = `
-            class AudioProcessorWorklet extends AudioWorkletProcessor {
-                constructor() {
-                    super();
-                    this.pitchValue = 0;
-                    this.speedValue = 1.0;
-                    this.port.onmessage = (e) => {
-                        if (e.data.pitch !== undefined) this.pitchValue = e.data.pitch;
-                        if (e.data.speed !== undefined) this.speedValue = e.data.speed;
-                    };
-                }
-
-                process(inputs, outputs, parameters) {
-                    const input = inputs[0];
-                    const output = outputs[0];
-
-                    if (!input || !input[0] || !output || !output[0]) return true;
-
-                    const inputChannel = input[0];
-                    const outputChannel = output[0];
-                    const pitchRatio = Math.pow(2, this.pitchValue / 12);
-                    const totalRatio = this.speedValue * pitchRatio;
-
-                    for (let i = 0; i < outputChannel.length; i++) {
-                        const index = Math.floor(i * totalRatio) % inputChannel.length;
-                        outputChannel[i] = inputChannel[index];
-                    }
-
-                    return true;
-                }
-            }
-            registerProcessor('audio-processor-worklet', AudioProcessorWorklet);
-        `;
-
-        const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
-        const workletUrl = URL.createObjectURL(workletBlob);
-
         document.addEventListener('DOMContentLoaded', () => {
             let peer = null;
             let audioCtx = null;
-            let gainNode = null;
-            let eqLowNode = null, eqMidNode = null, eqHighNode = null;
-            let workletNode = null;
+            let micGainNode = null;
+            let sysGainNode = null;
             let localStream = null;
-            let systemStream = null;
-            let genOscNode = null;
-            let genGainNode = null;
-            
+            let systemAudioStream = null;
             let isTransmitting = false;
             let isReceiving = false;
             
-            let gainValue = 1.0;
+            let micGainValue = 1.0;
+            let sysGainValue = 1.0;
             let speedValue = 1.0;
             let pitchValue = 0;
             let mixSystemAudioEnabled = false;
 
             const peerConfig = { config: { iceServers: [] } };
 
-            // UI Elements
+            // DOM Elements
             const tabTx = document.getElementById('tabTx');
             const tabRx = document.getElementById('tabRx');
             const panelTx = document.getElementById('panelTx');
             const panelRx = document.getElementById('panelRx');
+            const btnGenId = document.getElementById('btnGenId');
+            const roomIdInput = document.getElementById('roomId');
+            const gainSlider = document.getElementById('gainSlider');
+            const gainValueLabel = document.getElementById('gainValue');
+            const sysGainSlider = document.getElementById('sysGainSlider');
+            const sysGainValueLabel = document.getElementById('sysGainValue');
+            const speedSlider = document.getElementById('speedSlider');
+            const speedValueLabel = document.getElementById('speedValue');
             const btnStartTx = document.getElementById('btnStartTx');
-            const btnStartRx = document.getElementById('btnStartRx');
             const statusTx = document.getElementById('statusTx');
+            const btnStartRx = document.getElementById('btnStartRx');
             const statusRx = document.getElementById('statusRx');
-            const statusBadgeText = document.getElementById('statusBadgeText');
-            const statusDot = document.getElementById('statusDot');
+            const mixSystemAudio = document.getElementById('mixSystemAudio');
+            const sourceTargetContainer = document.getElementById('sourceTargetContainer');
+            const audioInputSelect = document.getElementById('audioInputSelect');
+            const audioOutputSelect = document.getElementById('audioOutputSelect');
+            const remoteAudio = document.getElementById('remoteAudio');
+            const keepAlive = document.getElementById('keepAlive');
 
-            // --- TAB SWITCHING ---
+            // --- タブ切り替え ---
             tabTx.addEventListener('click', () => {
-                tabTx.className = "py-2 rounded-lg font-bold text-xs bg-indigo-600 text-white shadow-md transition-all flex items-center justify-center gap-1.5";
-                tabRx.className = "py-2 rounded-lg font-bold text-xs text-slate-400 hover:text-white transition-all flex items-center justify-center gap-1.5";
+                tabTx.className = "py-2.5 rounded-md font-bold text-xs bg-indigo-600 text-white shadow transition-all";
+                tabRx.className = "py-2.5 rounded-md font-bold text-xs text-slate-400 hover:text-white transition-all";
                 panelTx.classList.remove('hidden');
                 panelRx.classList.add('hidden');
             });
 
             tabRx.addEventListener('click', () => {
-                tabRx.className = "py-2 rounded-lg font-bold text-xs bg-indigo-600 text-white shadow-md transition-all flex items-center justify-center gap-1.5";
-                tabTx.className = "py-2 rounded-lg font-bold text-xs text-slate-400 hover:text-white transition-all flex items-center justify-center gap-1.5";
+                tabRx.className = "py-2.5 rounded-md font-bold text-xs bg-indigo-600 text-white shadow transition-all";
+                tabTx.className = "py-2.5 rounded-md font-bold text-xs text-slate-400 hover:text-white transition-all";
                 panelRx.classList.remove('hidden');
                 panelTx.classList.add('hidden');
             });
 
-            // Room ID Generator
-            document.getElementById('btnGenId').addEventListener('click', () => {
+            // ルームID生成
+            btnGenId.addEventListener('click', () => {
                 const rand = Math.floor(1000 + Math.random() * 9000);
-                document.getElementById('roomId').value = 'mic-' + rand;
+                roomIdInput.value = 'mic-' + rand;
             });
 
-            // Enumerate Devices
-            loadOutputDevices();
-            async function loadOutputDevices() {
-                const select = document.getElementById('audioOutputSelect');
+            // デバイスリスト（入力＆出力）の初期ロード
+            loadDevices();
+
+            async function loadDevices() {
                 try {
+                    const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    tempStream.getTracks().forEach(t => t.stop());
+
                     const devices = await navigator.mediaDevices.enumerateDevices();
+                    const inputs = devices.filter(d => d.kind === 'audioinput');
                     const outputs = devices.filter(d => d.kind === 'audiooutput');
-                    select.innerHTML = '<option value="">(既定の出力スピーカー/VB-Cable)</option>';
+
+                    // 入力デバイス（ステレオミキサー / VB-Cableなど）
+                    audioInputSelect.innerHTML = '<option value="">(選択してください)</option>';
+                    inputs.forEach(d => {
+                        const opt = document.createElement('option');
+                        opt.value = d.deviceId;
+                        opt.textContent = d.label || `入力マイク/ミキサー (${d.deviceId.slice(0, 5)}...)`;
+                        audioInputSelect.appendChild(opt);
+                    });
+
+                    // 出力デバイス（スピーカー / CABLE Input）
+                    audioOutputSelect.innerHTML = '<option value="">(既定のスピーカー)</option>';
                     outputs.forEach(d => {
                         const opt = document.createElement('option');
                         opt.value = d.deviceId;
-                        opt.textContent = d.label || `出力デバイス (${d.deviceId.slice(0, 5)}...)`;
-                        select.appendChild(opt);
+                        opt.textContent = d.label || `スピーカー/CABLE Input (${d.deviceId.slice(0, 5)}...)`;
+                        audioOutputSelect.appendChild(opt);
                     });
-                } catch(e) {}
+                } catch (e) {
+                    audioInputSelect.innerHTML = '<option value="">(デバイス取得エラー)</option>';
+                    audioOutputSelect.innerHTML = '<option value="">(デバイス取得エラー)</option>';
+                }
             }
 
-            // Real-time Controls
-            document.getElementById('gainSlider').addEventListener('input', (e) => {
-                gainValue = parseFloat(e.target.value);
-                document.getElementById('gainValue').innerText = Math.round(gainValue * 100) + '%';
-                if (gainNode && audioCtx) {
-                    gainNode.gain.setValueAtTime(gainValue, audioCtx.currentTime);
+            // --- スライダーコントロール ---
+            gainSlider.addEventListener('input', (e) => {
+                micGainValue = parseFloat(e.target.value);
+                gainValueLabel.innerText = Math.round(micGainValue * 100) + '%';
+                if (micGainNode && audioCtx) {
+                    micGainNode.gain.setValueAtTime(micGainValue, audioCtx.currentTime);
                 }
             });
 
-            document.getElementById('speedSlider').addEventListener('input', (e) => {
+            sysGainSlider.addEventListener('input', (e) => {
+                sysGainValue = parseFloat(e.target.value);
+                sysGainValueLabel.innerText = Math.round(sysGainValue * 100) + '%';
+                if (sysGainNode && audioCtx) {
+                    sysGainNode.gain.setValueAtTime(sysGainValue, audioCtx.currentTime);
+                }
+            });
+
+            speedSlider.addEventListener('input', (e) => {
                 speedValue = parseFloat(e.target.value);
-                document.getElementById('speedValue').innerText = speedValue.toFixed(1) + 'x';
-                if (workletNode) workletNode.port.postMessage({ speed: speedValue });
+                speedValueLabel.innerText = speedValue.toFixed(1) + 'x';
             });
 
             document.querySelectorAll('.preset-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     pitchValue = parseInt(e.target.getAttribute('data-pitch'));
                     document.querySelectorAll('.preset-btn').forEach(b => {
-                        b.className = "preset-btn py-1.5 px-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-700 transition border border-slate-700";
+                        b.className = "preset-btn py-1.5 px-2 bg-slate-700 text-slate-300 rounded text-xs font-medium hover:bg-slate-600 transition";
                     });
-                    e.target.className = "preset-btn py-1.5 px-2 bg-indigo-600 text-white rounded-lg text-xs font-bold transition border border-indigo-500";
-                    if (workletNode) workletNode.port.postMessage({ pitch: pitchValue });
+                    e.target.className = "preset-btn py-1.5 px-2 bg-indigo-600 text-white rounded text-xs font-bold transition";
                 });
             });
 
-            // EQ Listeners
-            ['eqLow', 'eqMid', 'eqHigh'].forEach(id => {
-                document.getElementById(id).addEventListener('input', (e) => {
-                    const val = parseFloat(e.target.value);
-                    document.getElementById(id + 'Val').innerText = (val > 0 ? '+' : '') + val + 'dB';
-                    if (id === 'eqLow' && eqLowNode) eqLowNode.gain.value = val;
-                    if (id === 'eqMid' && eqMidNode) eqMidNode.gain.value = val;
-                    if (id === 'eqHigh' && eqHighNode) eqHighNode.gain.value = val;
-                });
-            });
-
-            document.getElementById('btnResetEq').addEventListener('click', () => {
-                ['eqLow', 'eqMid', 'eqHigh'].forEach(id => {
-                    document.getElementById(id).value = 0;
-                    document.getElementById(id + 'Val').innerText = '0dB';
-                });
-                if (eqLowNode) eqLowNode.gain.value = 0;
-                if (eqMidNode) eqMidNode.gain.value = 0;
-                if (eqHighNode) eqHighNode.gain.value = 0;
-            });
-
-            // PC Audio Generator
-            document.getElementById('enableGenAudio').addEventListener('change', (e) => {
-                const container = document.getElementById('genControlsContainer');
-                if (e.target.checked) {
-                    container.classList.remove('hidden');
-                    startGeneratorAudio();
-                } else {
-                    container.classList.add('hidden');
-                    stopGeneratorAudio();
-                }
-            });
-
-            function startGeneratorAudio() {
-                if (!audioCtx) return;
-                stopGeneratorAudio();
-                const type = document.getElementById('genType').value;
-                const vol = parseFloat(document.getElementById('genVol').value);
-
-                genGainNode = audioCtx.createGain();
-                genGainNode.gain.value = vol;
-
-                if (type === 'sine') {
-                    genOscNode = audioCtx.createOscillator();
-                    genOscNode.type = 'sine';
-                    genOscNode.frequency.value = 440;
-                    genOscNode.connect(genGainNode);
-                    genOscNode.start();
-                }
-            }
-
-            function stopGeneratorAudio() {
-                if (genOscNode) { try { genOscNode.stop(); } catch(e){} genOscNode = null; }
-            }
-
-            // Screen / Tab Mix Listener
-            document.getElementById('mixSystemAudio').addEventListener('change', async (e) => {
+            // PC内部音ミックス有効化チェック
+            mixSystemAudio.addEventListener('change', (e) => {
                 mixSystemAudioEnabled = e.target.checked;
-                const container = document.getElementById('sourceTargetContainer');
                 if (mixSystemAudioEnabled) {
-                    container.classList.remove('hidden');
-                    await selectScreenAudio();
+                    sourceTargetContainer.classList.remove('hidden');
                 } else {
-                    container.classList.add('hidden');
-                    if (systemStream) { systemStream.getTracks().forEach(t => t.stop()); systemStream = null; }
+                    sourceTargetContainer.classList.add('hidden');
+                    if (systemAudioStream) {
+                        systemAudioStream.getTracks().forEach(t => t.stop());
+                        systemAudioStream = null;
+                    }
                 }
             });
 
-            document.getElementById('btnSelectSource').addEventListener('click', selectScreenAudio);
+            // ピッチ＆倍速エフェクトノード作成
+            function createEffectProcessor(ctx) {
+                const bufferSize = 2048;
+                const node = ctx.createScriptProcessor(bufferSize, 1, 1);
+                node.onaudioprocess = function(e) {
+                    const input = e.inputBuffer.getChannelData(0);
+                    const output = e.outputBuffer.getChannelData(0);
+                    const pitchRatio = Math.pow(2, pitchValue / 12);
+                    const totalRatio = speedValue * pitchRatio;
 
-            async function selectScreenAudio() {
-                try {
-                    systemStream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
-                    systemStream.getVideoTracks().forEach(t => t.stop());
-                    const tracks = systemStream.getAudioTracks();
-                    if (tracks.length > 0) {
-                        document.getElementById('selectedSourceLabel').innerText = '🟢 キャプチャ有効: ' + (tracks[0].label || 'オーディオ');
-                    } else {
-                        alert('画面共有共有ダイアログで「オーディオを共有」をONにしてください。');
+                    for (let i = 0; i < input.length; i++) {
+                        const index = Math.floor(i * totalRatio) % input.length;
+                        output[i] = input[index];
                     }
-                } catch(e) {
-                    document.getElementById('mixSystemAudio').checked = false;
-                }
+                };
+                return node;
             }
 
-            // TRANSMITTER TOGGLE
+            // --- 送信トグル (スマホマイク) ---
             btnStartTx.addEventListener('click', async () => {
-                const id = document.getElementById('roomId').value.trim();
+                const id = roomIdInput.value.trim();
                 if (!id) { alert('合言葉を入力してください'); return; }
 
                 if (isTransmitting) {
-                    stopTransmitter();
+                    if (peer) { try { peer.destroy(); } catch(e){} }
+                    if (localStream) { localStream.getTracks().forEach(t => t.stop()); }
+                    if (audioCtx) { audioCtx.close(); }
+                    isTransmitting = false;
+                    btnStartTx.innerText = 'マイク送信を開始';
+                    btnStartTx.className = "w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
+                    statusTx.innerText = '状態: 停止しました';
                     return;
                 }
 
                 btnStartTx.disabled = true;
-                statusTx.innerText = 'マイク＆AudioWorklet準備中...';
+                statusTx.innerText = 'マイクを取得中...';
 
                 try {
-                    localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+                    keepAlive.src = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+                    keepAlive.play().catch(() => {});
+
+                    localStream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
+                        video: false 
+                    });
 
                     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                    if (audioCtx.state === 'suspended') await audioCtx.resume();
+                    if (audioCtx.state === 'suspended') { await audioCtx.resume(); }
 
-                    // Load Worklet Module
-                    await audioCtx.audioWorklet.addModule(workletUrl);
-
-                    const source = audioCtx.createMediaStreamSource(localStream);
-                    gainNode = audioCtx.createGain();
-                    gainNode.gain.setValueAtTime(gainValue, audioCtx.currentTime);
-
-                    // 3-Band Parametric EQ Nodes
-                    eqLowNode = audioCtx.createBiquadFilter();
-                    eqLowNode.type = 'lowshelf';
-                    eqLowNode.frequency.value = 320;
-
-                    eqMidNode = audioCtx.createBiquadFilter();
-                    eqMidNode.type = 'peaking';
-                    eqMidNode.frequency.value = 1000;
-
-                    eqHighNode = audioCtx.createBiquadFilter();
-                    eqHighNode.type = 'highshelf';
-                    eqHighNode.frequency.value = 3200;
-
-                    workletNode = new AudioWorkletNode(audioCtx, 'audio-processor-worklet');
-                    workletNode.port.postMessage({ pitch: pitchValue, speed: speedValue });
+                    const micSource = audioCtx.createMediaStreamSource(localStream);
+                    micGainNode = audioCtx.createGain();
+                    micGainNode.gain.setValueAtTime(micGainValue, audioCtx.currentTime);
 
                     const destination = audioCtx.createMediaStreamDestination();
+                    const effectProcessor = createEffectProcessor(audioCtx);
 
-                    // Routing Graph
-                    source.connect(gainNode);
-                    gainNode.connect(eqLowNode);
-                    eqLowNode.connect(eqMidNode);
-                    eqMidNode.connect(eqHighNode);
-                    eqHighNode.connect(workletNode);
-                    workletNode.connect(destination);
+                    micSource.connect(micGainNode);
+                    micGainNode.connect(effectProcessor);
+                    effectProcessor.connect(destination);
 
-                    // Mix PC Generator audio if active
-                    if (genGainNode) {
-                        genGainNode.connect(destination);
-                    }
+                    statusTx.innerText = 'Peer接続中...';
+                    if (peer) { try { peer.destroy(); } catch(e){} }
 
                     peer = new Peer(peerConfig);
 
                     peer.on('open', () => {
-                        statusTx.innerText = 'PC側へ接続試行中...';
+                        statusTx.innerText = 'PC側へ接続中...';
                         const call = peer.call('rx-' + id, destination.stream);
                         if (!call) {
-                            statusTx.innerText = '❌ PCが見つかりません';
+                            statusTx.innerText = '❌ PC側が見つかりません';
                             btnStartTx.disabled = false;
                             return;
                         }
                         isTransmitting = true;
                         btnStartTx.disabled = false;
                         btnStartTx.innerText = 'マイク送信を停止';
-                        btnStartTx.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-xl transition shadow-lg text-sm";
-                        statusTx.innerText = '🟢 低遅延送信中 (AudioWorklet DSP)';
-                        statusBadgeText.innerText = 'ONLINE (TX)';
-                        statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse';
+                        btnStartTx.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
+                        statusTx.innerText = '🟢 マイク送信中！';
                     });
 
                     peer.on('error', (err) => {
@@ -501,42 +366,30 @@
                     });
 
                 } catch (e) {
-                    console.error(e);
-                    statusTx.innerText = '❌ マイクまたはDSPの初期化に失敗しました';
+                    statusTx.innerText = '❌ マイクの許可が必要です';
                     btnStartTx.disabled = false;
                 }
             });
 
-            function stopTransmitter() {
-                if (peer) try { peer.destroy(); } catch(e){}
-                if (localStream) localStream.getTracks().forEach(t => t.stop());
-                if (audioCtx) audioCtx.close();
-                isTransmitting = false;
-                btnStartTx.innerText = 'マイク送信を開始';
-                btnStartTx.className = "w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-lg text-sm";
-                statusTx.innerText = '状態: 停止中';
-                statusBadgeText.innerText = 'OFFLINE';
-                statusDot.className = 'w-2 h-2 rounded-full bg-slate-500 inline-block';
-            }
-
-            // RECEIVER TOGGLE
-            btnStartRx.addEventListener('click', () => {
-                const id = document.getElementById('roomId').value.trim();
+            // --- 受信トグル (PC側) ---
+            btnStartRx.addEventListener('click', async () => {
+                const id = roomIdInput.value.trim();
                 if (!id) { alert('合言葉を入力してください'); return; }
 
                 if (isReceiving) {
-                    if (peer) try { peer.destroy(); } catch(e){}
+                    if (peer) { try { peer.destroy(); } catch(e){} }
+                    if (systemAudioStream) { systemAudioStream.getTracks().forEach(t => t.stop()); }
                     isReceiving = false;
                     btnStartRx.innerText = '受信スタンバイを開始';
-                    btnStartRx.className = "w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-lg text-sm";
-                    statusRx.innerText = '状態: 停止中';
-                    statusBadgeText.innerText = 'OFFLINE';
-                    statusDot.className = 'w-2 h-2 rounded-full bg-slate-500 inline-block';
+                    btnStartRx.className = "w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
+                    statusRx.innerText = '状態: 待機停止中';
                     return;
                 }
 
                 btnStartRx.disabled = true;
-                statusRx.innerText = '受信用Peer作成中...';
+                statusRx.innerText = '受信用ID作成中...';
+
+                if (peer) { try { peer.destroy(); } catch(e){} }
 
                 peer = new Peer('rx-' + id, peerConfig);
 
@@ -544,27 +397,56 @@
                     isReceiving = true;
                     btnStartRx.disabled = false;
                     btnStartRx.innerText = '受信を停止';
-                    btnStartRx.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-xl transition shadow-lg text-sm";
-                    statusRx.innerText = '🟢 同一Wi-Fiからの接続待ち中...';
-                    statusBadgeText.innerText = 'STANDBY (RX)';
-                    statusDot.className = 'w-2 h-2 rounded-full bg-amber-400 inline-block animate-pulse';
+                    btnStartRx.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
+                    statusRx.innerText = '🟢 スマホからの接続待ち中...';
                 });
 
-                peer.on('call', (call) => {
-                    statusRx.innerText = '接続成功！音声出力中...';
+                peer.on('call', async (call) => {
+                    statusRx.innerText = '接続完了！音声を再生・ミキシング中...';
                     call.answer();
 
-                    call.on('stream', async (stream) => {
-                        const audioEl = document.getElementById('remoteAudio');
-                        audioEl.srcObject = stream;
-                        try { await audioEl.play(); } catch(e){}
+                    call.on('stream', async (remoteStream) => {
+                        // Web Audio APIでスマホマイク音とPC音声を合成
+                        const rxAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        if (rxAudioCtx.state === 'suspended') { await rxAudioCtx.resume(); }
 
-                        const deviceId = document.getElementById('audioOutputSelect').value;
-                        if (deviceId && typeof audioEl.setSinkId === 'function') {
-                            try { await audioEl.setSinkId(deviceId); } catch(e){}
+                        const destination = rxAudioCtx.createMediaStreamDestination();
+                        const micInputSource = rxAudioCtx.createMediaStreamSource(remoteStream);
+                        micInputSource.connect(destination);
+
+                        // PC内部音声の直接取り込み (ステレオミキサー等)
+                        const inputDeviceId = audioInputSelect.value;
+                        if (mixSystemAudioEnabled && inputDeviceId) {
+                            try {
+                                systemAudioStream = await navigator.mediaDevices.getUserMedia({
+                                    audio: { deviceId: { exact: inputDeviceId } },
+                                    video: false
+                                });
+                                const sysSource = rxAudioCtx.createMediaStreamSource(systemAudioStream);
+                                sysGainNode = rxAudioCtx.createGain();
+                                sysGainNode.gain.setValueAtTime(sysGainValue, rxAudioCtx.currentTime);
+                                sysSource.connect(sysGainNode);
+                                sysGainNode.connect(destination); // ミックス
+                            } catch (e) {
+                                console.error("PC音声の取り込み失敗:", e);
+                            }
                         }
-                        statusBadgeText.innerText = 'ONLINE (RX)';
-                        statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse';
+
+                        remoteAudio.srcObject = destination.stream;
+                        try { await remoteAudio.play(); } catch (e) {}
+
+                        // 指定の出力デバイス (VB-Cable Input等) へセット
+                        const outputDeviceId = audioOutputSelect.value;
+                        if (outputDeviceId && typeof remoteAudio.setSinkId === 'function') {
+                            try {
+                                await remoteAudio.setSinkId(outputDeviceId);
+                                statusRx.innerText = '🟢 受信中（ミキシング音声を指定デバイスへ出力中）';
+                            } catch (e) {
+                                statusRx.innerText = '🟢 受信中（デフォルトデバイスへ出力）';
+                            }
+                        } else {
+                            statusRx.innerText = '🟢 受信・ミキシング中！';
+                        }
                     });
                 });
 
@@ -573,7 +455,31 @@
                     btnStartRx.disabled = false;
                 });
             });
+
+            // 出力先のリアルタイム変更
+            audioOutputSelect.addEventListener('change', async (e) => {
+                const deviceId = e.target.value;
+                if (typeof remoteAudio.setSinkId === 'function') {
+                    try {
+                        await remoteAudio.setSinkId(deviceId);
+                        statusRx.innerText = '🟢 受信中（出力先を変更しました）';
+                    } catch (e) {}
+                }
+            });
         });
     </script>
 </body>
 </html>
+```
+
+---
+
+### 🎯 使い方手順
+
+1. **スマホ（送信）**: ページを開き、「合言葉」を揃えて **「マイク送信を開始」** を押します。
+2. **PC（受信）**:
+   - PC側のタブを開きます。
+   - **「🎛️ PC内部音声（BGM/ソフト音）をミックス」** にチェックを入れます。
+   - ドロップダウンから、PCの再生音（YouTubeやBGM等）を拾うデバイス（**「ステレオミキサー」** や **「CABLE Output」**）を選択します。
+   - 音声の出力先（Discordへ送る場合は **「CABLE Input」**）を選び、**「受信スタンバイを開始」** を押します。
+3. これにより、スマホのマイク音とPCの再生音がクリアに合流し、音量コントロール付きで出力されます！
