@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク中継器（サイト完結・音声専用抽出ミキサー）</title>
+    <title>スマホマイク中継器（YouTube音声確実キャプチャ版）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS WebRTCライブラリ -->
@@ -13,7 +13,7 @@
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">サイト完結型・音声専用抽出ミキサー</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">YouTube・タブ音声完全対応ミキサー</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -40,7 +40,6 @@
                 ※同じWi-Fiに接続してご利用ください。
             </div>
 
-            <!-- スマホマイク音量スライダー -->
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
                 <div class="flex justify-between items-center mb-1">
                     <label class="text-xs font-semibold text-slate-300">🎤 スマホマイク音量ブースト</label>
@@ -71,7 +70,7 @@
                 </div>
                 <div>
                     <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                        <span>🎵 PC音声キャプチャレベル</span>
+                        <span>🎵 YouTube・PC音声キャプチャレベル</span>
                         <span id="sysVuText">0%</span>
                     </div>
                     <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
@@ -84,14 +83,14 @@
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700 space-y-3">
                 <div class="flex items-center justify-between">
                     <label class="text-xs font-semibold text-slate-200 cursor-pointer" for="mixSystemAudio">
-                        🎛️ PCアプリ・タブの音声を内部抽出
+                        🎛️ YouTube・タブの音声を内部抽出
                     </label>
                     <input type="checkbox" id="mixSystemAudio" class="w-4 h-4 accent-indigo-500 cursor-pointer">
                 </div>
                 
                 <div id="sourceTargetContainer" class="hidden space-y-3 pt-2 border-t border-slate-800">
                     <button type="button" id="btnSelectSource" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded text-xs font-bold transition flex items-center justify-center gap-1">
-                        🎯 抜き取るアプリ・タブを選択
+                        🎯 抜き取るYouTubeタブを選択
                     </button>
                     <div id="selectedSourceLabel" class="text-[11px] text-indigo-300 font-mono text-center truncate">選択中: 未選択</div>
 
@@ -107,7 +106,7 @@
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-400 mb-1">出力デバイス選択（Discord用仮想ケーブル等）</label>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">出力デバイス選択</label>
                 <select id="audioOutputSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
                     <option value="">(読み込み中...)</option>
                 </select>
@@ -132,6 +131,7 @@
             let micAnalyser = null;
             let sysAnalyser = null;
             let systemStream = null;
+            let sysSourceNode = null;
 
             let isTransmitting = false;
             let isReceiving = false;
@@ -141,7 +141,7 @@
 
             const peerConfig = { config: { iceServers: [] } };
 
-            // UIタブ切り替え
+            // タブ切り替え
             document.getElementById('tabTx').addEventListener('click', () => {
                 document.getElementById('tabTx').className = "py-2.5 rounded-md font-bold text-xs bg-indigo-600 text-white shadow";
                 document.getElementById('tabRx').className = "py-2.5 rounded-md font-bold text-xs text-slate-400 hover:text-white";
@@ -156,13 +156,11 @@
                 document.getElementById('panelTx').classList.add('hidden');
             });
 
-            // 自動ID生成
             document.getElementById('btnGenId').addEventListener('click', () => {
                 const rand = Math.floor(1000 + Math.random() * 9000);
                 document.getElementById('roomId').value = 'mic-' + rand;
             });
 
-            // 出力デバイス読み込み
             async function loadDevices() {
                 const select = document.getElementById('audioOutputSelect');
                 try {
@@ -179,7 +177,6 @@
             }
             loadDevices();
 
-            // 音量スライダーイベント
             document.getElementById('gainSlider').addEventListener('input', (e) => {
                 micGainValue = parseFloat(e.target.value);
                 document.getElementById('gainValue').innerText = Math.round(micGainValue * 100) + '%';
@@ -192,50 +189,70 @@
                 if (sysGainNode) sysGainNode.gain.value = sysGainValue;
             });
 
-            // PC音声チェックボックス
             document.getElementById('mixSystemAudio').addEventListener('change', (e) => {
                 mixSystemAudioEnabled = e.target.checked;
                 document.getElementById('sourceTargetContainer').classList.toggle('hidden', !mixSystemAudioEnabled);
             });
 
-            // サイト完結 音抜き取りエンジン
+            // 確保したYouTubeタブの音声をAudioContextに直結させる処理
             document.getElementById('btnSelectSource').addEventListener('click', async () => {
                 try {
                     const captureStream = await navigator.mediaDevices.getDisplayMedia({
                         audio: {
                             echoCancellation: false,
                             noiseSuppression: false,
-                            autoGainControl: false,
-                            suppressLocalAudioPlayback: false
+                            autoGainControl: false
                         },
                         video: true
                     });
 
-                    // 音声トラックを確保
                     const audioTracks = captureStream.getAudioTracks();
-
-                    // 不要な映像トラック（ビデオ）はキャプチャした瞬間に即時停止・破棄
-                    captureStream.getVideoTracks().forEach(track => track.stop());
+                    captureStream.getVideoTracks().forEach(t => t.stop()); // 映像即時破棄
 
                     if (audioTracks.length > 0) {
-                        // 音声データだけの純粋なMediaStreamを作成
                         systemStream = new MediaStream([audioTracks[0]]);
                         const label = audioTracks[0].label || "選択された音声";
                         document.getElementById('selectedSourceLabel').innerText = `🟢 抽出完了: ${label}`;
 
-                        // 途中で停止された場合
+                        // AudioContextが既に起動していれば即座にルーティング構築
+                        if (audioCtx) {
+                            setupSystemAudioRouting();
+                        }
+
                         audioTracks[0].onended = () => {
-                            document.getElementById('selectedSourceLabel').innerText = '選択中: 停止されました';
+                            document.getElementById('selectedSourceLabel').innerText = '選択中: 共有が停止されました';
                             systemStream = null;
                         };
                     } else {
-                        alert("⚠️ 音声が含まれていません！\n画面選択時に左下の「オーディオも共有する」にチェックを入れてください。");
+                        alert("⚠️ 音声トラックがありません。「タブのオーディオを共有」にチェックを入れてください。");
                         captureStream.getTracks().forEach(t => t.stop());
                     }
                 } catch (err) {
-                    document.getElementById('selectedSourceLabel').innerText = '❌ 選択がキャンセルされました';
+                    document.getElementById('selectedSourceLabel').innerText = '❌ キャンセルされました';
                 }
             });
+
+            function setupSystemAudioRouting() {
+                if (!audioCtx || !systemStream) return;
+                try {
+                    if (sysSourceNode) { try { sysSourceNode.disconnect(); } catch(e){} }
+                    
+                    sysSourceNode = audioCtx.createMediaStreamSource(systemStream);
+                    sysGainNode = audioCtx.createGain();
+                    sysGainNode.gain.value = sysGainValue;
+                    sysAnalyser = audioCtx.createAnalyser();
+
+                    sysSourceNode.connect(sysGainNode);
+                    sysGainNode.connect(sysAnalyser);
+                    
+                    // 最終出力先(dest)へ接続
+                    if (window.audioDestination) {
+                        sysGainNode.connect(window.audioDestination);
+                    }
+                } catch (e) {
+                    console.error("システムースリーム接続エラー:", e);
+                }
+            }
 
             // VUメーターアニメーション
             function startVuMeters() {
@@ -284,11 +301,17 @@
             });
 
             // PC受信側
-            document.getElementById('btnStartRx').addEventListener('click', () => {
+            document.getElementById('btnStartRx').addEventListener('click', async () => {
                 const id = document.getElementById('roomId').value.trim();
                 const status = document.getElementById('statusRx');
                 if (!id) { alert("合言葉を入力してください"); return; }
                 if (isReceiving) { location.reload(); return; }
+
+                // ブラウザの自動再生ポリシーを解除するためAudioContextを明示的に作成＆レジューム
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
 
                 peer = new Peer('rx-' + id, peerConfig);
                 peer.on('open', () => {
@@ -301,7 +324,6 @@
                 peer.on('call', (call) => {
                     call.answer();
                     call.on('stream', (remoteStream) => {
-                        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                         if (audioCtx.state === 'suspended') audioCtx.resume();
 
                         // 1. スマホマイク音のルーティング
@@ -313,22 +335,14 @@
                         micSource.connect(micGainNode);
                         micGainNode.connect(micAnalyser);
 
-                        // 合成用Destination
+                        // 合成用Destinationをグローバル保持
                         const dest = audioCtx.createMediaStreamDestination();
+                        window.audioDestination = dest;
                         micGainNode.connect(dest);
 
-                        // 2. 抽出したPC音声のルーティング
+                        // 2. 既に選択されているYouTubeタブ音声があればここで接続
                         if (mixSystemAudioEnabled && systemStream) {
-                            try {
-                                const sysSource = audioCtx.createMediaStreamSource(systemStream);
-                                sysGainNode = audioCtx.createGain();
-                                sysGainNode.gain.value = sysGainValue;
-                                sysAnalyser = audioCtx.createAnalyser();
-
-                                sysSource.connect(sysGainNode);
-                                sysGainNode.connect(sysAnalyser);
-                                sysGainNode.connect(dest);
-                            } catch (e) {}
+                            setupSystemAudioRouting();
                         }
 
                         // 出力再生
@@ -341,7 +355,7 @@
                             audioEl.setSinkId(deviceId).catch(() => {});
                         }
 
-                        status.innerText = "🟢 接続完了！音声ミキシング再生中";
+                        status.innerText = "🟢 受信・音声ミキシング再生中！";
                         startVuMeters();
                     });
                 });
