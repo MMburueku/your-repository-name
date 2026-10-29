@@ -109,8 +109,8 @@
         <!-- パネル2：PC（受信側） -->
         <div id="panelRx" class="space-y-4 hidden">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                <div class="font-bold text-indigo-300 mb-1">💻 PC受信 ＆ オーディオミキサー</div>
-                <p>スマホのマイク音声を受信し、PC側のソフト・ブラウザの音声を好みの方式で合流・出力します。</p>
+                <div class="font-bold text-indigo-300 mb-1">💻 PC受信 ＆ ミキシング出力</div>
+                <p>スマホのマイク音声とPC上の音声を1つの出力先（CABLE Input等）へ合成して出力します。</p>
             </div>
 
             <!-- 音声入力レベルメーター群（PC側） -->
@@ -150,7 +150,7 @@
                 <div id="sourceTargetContainer" class="hidden space-y-3 pt-2 border-t border-slate-800">
                     <!-- キャプチャ方式選択 -->
                     <div class="grid grid-cols-2 gap-2 text-xs">
-                        <button type="button" id="btnModeTab" class="py-1.5 px-2 bg-indigo-600 text-white rounded font-bold transition">方式A: タブ/画面共有</button>
+                        <button type="button" id="btnModeTab" class="py-1.5 px-2 bg-indigo-600 text-white rounded font-bold transition">方式A: タブ/アプリ画面</button>
                         <button type="button" id="btnModeDev" class="py-1.5 px-2 bg-slate-700 text-slate-300 rounded font-medium hover:bg-slate-600 transition">方式B: 入力デバイス</button>
                     </div>
 
@@ -159,14 +159,14 @@
                         <button type="button" id="btnSelectSource" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs font-medium transition">
                             🎯 流すタブ・画面を選択する
                         </button>
-                        <p class="text-[10px] text-amber-400 text-center">※選択時に「オーディオを共有」をオンにしてください</p>
+                        <p class="text-[10px] text-amber-400 text-center">※ダイアログ左下の「オーディオを共有」を必ずONにしてください</p>
                     </div>
 
                     <!-- 方式B：入力デバイス直接キャプチャ（ステレオミキサー等） -->
                     <div id="modeDevUI" class="hidden space-y-1">
                         <label class="block text-[11px] font-semibold text-slate-400">取り込む入力デバイス (ステレオミキサー / VB-Cable等)</label>
                         <select id="audioInputSelect" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-2 text-xs text-white focus:outline-none">
-                            <option value="">(読み込み中...)</option>
+                            <option value="">(入力デバイスを選択)</option>
                         </select>
                     </div>
 
@@ -187,7 +187,7 @@
             <div>
                 <label class="block text-xs font-semibold text-slate-400 mb-1">最終出力デバイス (例: CABLE Input / スピーカー)</label>
                 <select id="audioOutputSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
-                    <option value="">(読み込み中...)</option>
+                    <option value="">(デフォルト再生先)</option>
                 </select>
             </div>
 
@@ -210,8 +210,12 @@
             let audioCtx = null;
             let micGainNode = null;
             let sysGainNode = null;
+            let micSourceNode = null;
+            let sysSourceNode = null;
+            let mixedDestinationNode = null;
             let localStream = null;
             let systemStream = null;
+            let remoteMicStream = null;
             let isTransmitting = false;
             let isReceiving = false;
             
@@ -379,6 +383,7 @@
                         systemStream = null;
                     }
                     selectedSourceLabel.innerText = 'キャプチャ状態: 未設定';
+                    rebuildAudioGraph();
                 }
             });
 
@@ -388,9 +393,18 @@
             async function selectAudioSourceTab() {
                 try {
                     const rawStream = await navigator.mediaDevices.getDisplayMedia({ 
-                        audio: { autoGainControl: false, echoCancellation: false, noiseSuppression: false }, 
-                        video: true 
+                        video: true,
+                        audio: {
+                            autoGainControl: false,
+                            echoCancellation: false,
+                            noiseSuppression: false
+                        },
+                        systemAudio: "include",
+                        selfBrowserSurface: "include",
+                        surfaceSwitching: "include"
                     });
+
+                    // ビデオトラックは不要なため即座に停止
                     rawStream.getVideoTracks().forEach(t => t.stop());
 
                     const audioTracks = rawStream.getAudioTracks();
@@ -403,9 +417,12 @@
                             selectedSourceLabel.innerText = 'キャプチャ停止';
                             mixSystemAudio.checked = false;
                             mixSystemAudioEnabled = false;
+                            rebuildAudioGraph();
                         };
+
+                        rebuildAudioGraph();
                     } else {
-                        alert('⚠️ 音声が含まれていません。「オーディオを共有」にチェックを入れて再試行してください。');
+                        alert('⚠️ 音声トラックが検出されませんでした。\n共有ダイアログ左下の「オーディオを共有」にチェックを入れているかご確認ください。');
                         rawStream.getTracks().forEach(t => t.stop());
                         systemStream = null;
                         selectedSourceLabel.innerText = '❌ 音声共有なし';
@@ -430,10 +447,56 @@
                     });
                     const label = systemStream.getAudioTracks()[0].label || '選択デバイス';
                     selectedSourceLabel.innerText = `🟢 デバイス音声キャプチャ中: ${label}`;
+                    rebuildAudioGraph();
                 } catch (err) {
                     selectedSourceLabel.innerText = '❌ デバイス取得エラー';
                 }
             });
+
+            // WEB AUDIO API ROUTING REBUILD
+            function rebuildAudioGraph() {
+                if (!audioCtx || !isReceiving) return;
+
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+
+                // Nodeクリーンアップ
+                if (micSourceNode) { try { micSourceNode.disconnect(); } catch(e){} }
+                if (sysSourceNode) { try { sysSourceNode.disconnect(); } catch(e){} }
+
+                mixedDestinationNode = audioCtx.createMediaStreamDestination();
+
+                // 1. スマホマイク音声処理
+                if (remoteMicStream && remoteMicStream.getAudioTracks().length > 0) {
+                    micSourceNode = audioCtx.createMediaStreamSource(remoteMicStream);
+                    micGainNode = audioCtx.createGain();
+                    micGainNode.gain.setValueAtTime(micGainValue, audioCtx.currentTime);
+
+                    rxMicAnalyser = createAnalyser(audioCtx, micSourceNode);
+
+                    micSourceNode.connect(micGainNode);
+                    micGainNode.connect(mixedDestinationNode);
+                }
+
+                // 2. PCシステム音声処理
+                if (mixSystemAudioEnabled && systemStream && systemStream.getAudioTracks().length > 0) {
+                    sysSourceNode = audioCtx.createMediaStreamSource(systemStream);
+                    sysGainNode = audioCtx.createGain();
+                    sysGainNode.gain.setValueAtTime(sysGainValue, audioCtx.currentTime);
+
+                    rxSysAnalyser = createAnalyser(audioCtx, sysSourceNode);
+
+                    sysSourceNode.connect(sysGainNode);
+                    sysGainNode.connect(mixedDestinationNode);
+                }
+
+                // 最終出力エレメントへストリームを設定
+                remoteAudio.srcObject = mixedDestinationNode.stream;
+                remoteAudio.play().catch(e => console.log("Play error:", e));
+
+                startRxMeters();
+            }
 
             // VU METER HELPER
             function createAnalyser(ctx, sourceNode) {
@@ -624,32 +687,11 @@
                     statusRx.innerText = '接続完了！音声を再生中...';
                     call.answer();
 
-                    call.on('stream', async (remoteStream) => {
+                    call.on('stream', async (stream) => {
+                        remoteMicStream = stream;
                         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                        if (audioCtx.state === 'suspended') { await audioCtx.resume(); }
-
-                        // 1. Mobile Mic Stream & VU Analyser
-                        const micSource = audioCtx.createMediaStreamSource(remoteStream);
-                        rxMicAnalyser = createAnalyser(audioCtx, micSource);
-
-                        const destination = audioCtx.createMediaStreamDestination();
-                        micSource.connect(destination);
-
-                        // 2. PC System Audio Stream & VU Analyser (if enabled)
-                        if (mixSystemAudioEnabled && systemStream && systemStream.getAudioTracks().length > 0) {
-                            const sysSource = audioCtx.createMediaStreamSource(systemStream);
-                            sysGainNode = audioCtx.createGain();
-                            sysGainNode.gain.setValueAtTime(sysGainValue, audioCtx.currentTime);
-                            
-                            rxSysAnalyser = createAnalyser(audioCtx, sysSource);
-                            sysSource.connect(sysGainNode);
-                            sysGainNode.connect(destination);
-                        }
-
-                        startRxMeters();
-
-                        remoteAudio.srcObject = destination.stream;
-                        try { await remoteAudio.play(); } catch (e) {}
+                        
+                        rebuildAudioGraph();
 
                         const deviceId = audioOutputSelect.value;
                         if (deviceId && typeof remoteAudio.setSinkId === 'function') {
