@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク中継器（システム音ミックス完全対応版）</title>
+    <title>スマホマイク中継器（音声専用キャプチャ＆個別音量コントロール版）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS WebRTCライブラリ -->
@@ -13,7 +13,7 @@
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">マイク＋システム音 リアルタイムミキサー</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">音声抽出＆音量個別ミキサー機能付き</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -43,7 +43,7 @@
             <!-- 音量増幅スライダー -->
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
                 <div class="flex justify-between items-center mb-1">
-                    <label class="text-xs font-semibold text-slate-300">🎤 マイク音量ブースト</label>
+                    <label class="text-xs font-semibold text-slate-300">🎤 スマホマイク音量ブースト</label>
                     <span id="gainValue" class="text-xs font-mono font-bold text-indigo-400">100%</span>
                 </div>
                 <input type="range" id="gainSlider" min="0" max="8" step="0.2" value="1" class="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
@@ -81,23 +81,33 @@
         <!-- パネル2：PC（受信側） -->
         <div id="panelRx" class="space-y-4 hidden">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                PCで再生中の音声をマイクに重ねて送信・出力できます。<br>
-                <span class="text-amber-400 font-semibold">※「タブ」または「画面全体」を選び、「オーディオを共有」をオンにしてください。</span>
+                PCで再生中の音声を「音声のみ」抽出してミックスできます。<br>
+                <span class="text-amber-400 font-semibold">※「Chromeタブ」または「画面全体」を選び、「オーディオを共有」をオンにしてください。</span>
             </div>
 
+            <!-- PC側システム音ミキサー＆音量コントロール -->
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700 space-y-3">
                 <div class="flex items-center justify-between">
                     <label class="text-xs font-semibold text-slate-200 cursor-pointer" for="mixSystemAudio">
-                        🎛️ PC側アプリ・タブの音声をミックス
+                        🎛️ PC側ソフト・サイトの音声をミックス
                     </label>
                     <input type="checkbox" id="mixSystemAudio" class="w-4 h-4 accent-indigo-500 cursor-pointer">
                 </div>
                 
-                <div id="sourceTargetContainer" class="hidden space-y-2 pt-2 border-t border-slate-800">
+                <div id="sourceTargetContainer" class="hidden space-y-3 pt-2 border-t border-slate-800">
                     <button type="button" id="btnSelectSource" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs font-medium transition">
-                        🎯 流すアプリ・タブを選択する
+                        🎵 音声ソース（アプリ・タブ）を選択する
                     </button>
                     <div id="selectedSourceLabel" class="text-[11px] text-indigo-300 font-mono text-center truncate">選択中: なし</div>
+
+                    <!-- PC側システム音声専用音量スライダー -->
+                    <div class="bg-slate-950/60 p-2.5 rounded border border-slate-800">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-[11px] font-semibold text-slate-300">🔊 PC音声の音量調整</label>
+                            <span id="sysGainValue" class="text-[11px] font-mono font-bold text-indigo-400">100%</span>
+                        </div>
+                        <input type="range" id="sysGainSlider" min="0" max="3" step="0.1" value="1" class="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
                 </div>
             </div>
 
@@ -123,13 +133,15 @@
         document.addEventListener('DOMContentLoaded', () => {
             let peer = null;
             let audioCtx = null;
-            let gainNode = null;
+            let micGainNode = null;
+            let sysGainNode = null;
             let localStream = null;
             let systemStream = null;
             let isTransmitting = false;
             let isReceiving = false;
             
-            let gainValue = 1.0;
+            let micGainValue = 1.0;
+            let sysGainValue = 1.0;
             let speedValue = 1.0;
             let pitchValue = 0;
             let mixSystemAudioEnabled = false;
@@ -181,13 +193,23 @@
                 }
             }
 
-            // スライダー操作
+            // マイク音量スライダー
             document.getElementById('gainSlider').addEventListener('input', (e) => {
-                gainValue = parseFloat(e.target.value);
-                const percent = Math.round(gainValue * 100);
+                micGainValue = parseFloat(e.target.value);
+                const percent = Math.round(micGainValue * 100);
                 document.getElementById('gainValue').innerText = percent + '%';
-                if (gainNode && audioCtx) {
-                    gainNode.gain.setValueAtTime(gainValue, audioCtx.currentTime);
+                if (micGainNode && audioCtx) {
+                    micGainNode.gain.setValueAtTime(micGainValue, audioCtx.currentTime);
+                }
+            });
+
+            // PCシステム音声専用 音量スライダー
+            document.getElementById('sysGainSlider').addEventListener('input', (e) => {
+                sysGainValue = parseFloat(e.target.value);
+                const percent = Math.round(sysGainValue * 100);
+                document.getElementById('sysGainValue').innerText = percent + '%';
+                if (sysGainNode && audioCtx) {
+                    sysGainNode.gain.setValueAtTime(sysGainValue, audioCtx.currentTime);
                 }
             });
 
@@ -226,9 +248,10 @@
 
             document.getElementById('btnSelectSource').addEventListener('click', selectAudioSource);
 
+            // 音声のみを精密抽出する関数
             async function selectAudioSource() {
                 try {
-                    systemStream = await navigator.mediaDevices.getDisplayMedia({ 
+                    const rawStream = await navigator.mediaDevices.getDisplayMedia({ 
                         audio: {
                             autoGainControl: false,
                             echoCancellation: false,
@@ -237,10 +260,18 @@
                         video: true 
                     });
 
-                    const audioTracks = systemStream.getAudioTracks();
+                    // 音声トラックのみを取り出す
+                    const audioTracks = rawStream.getAudioTracks();
+                    
+                    // 不要な映像トラック（ビデオトラック）は即座に停止して破棄
+                    rawStream.getVideoTracks().forEach(track => track.stop());
+
                     if (audioTracks.length > 0) {
-                        const label = audioTracks[0].label || '選択されたソース';
-                        document.getElementById('selectedSourceLabel').innerText = `🟢 選択中: ${label}`;
+                        // 音声トラックだけで構成された新しいMediaStreamを生成
+                        systemStream = new MediaStream([audioTracks[0]]);
+                        
+                        const label = audioTracks[0].label || '選択された音声ソース';
+                        document.getElementById('selectedSourceLabel').innerText = `🟢 音声抽出完了: ${label}`;
                         
                         audioTracks[0].onended = () => {
                             document.getElementById('selectedSourceLabel').innerText = '選択中: 停止されました';
@@ -248,8 +279,8 @@
                             mixSystemAudioEnabled = false;
                         };
                     } else {
-                        alert('⚠️ 音声が含まれていません！\n共有ダイアログで「オーディオを共有」にチェックを入れたか確認してください。\n※「ウィンドウ」ではなく「タブ」または「画面全体」を選ぶと確実に音が入ります。');
-                        systemStream.getTracks().forEach(t => t.stop());
+                        alert('⚠️ 音声が含まれていません！\n共有ダイアログで「オーディオを共有」にチェックが入っているか確認してください。\n※「Tab(タブ)」または「画面全体」を選ぶと確実に音声が入ります。');
+                        rawStream.getTracks().forEach(t => t.stop());
                         systemStream = null;
                         document.getElementById('selectedSourceLabel').innerText = '❌ 音声共有なし (再選択してください)';
                     }
@@ -315,24 +346,25 @@
                     if (audioCtx.state === 'suspended') { await audioCtx.resume(); }
 
                     const micSource = audioCtx.createMediaStreamSource(localStream);
-                    gainNode = audioCtx.createGain();
-                    gainNode.gain.setValueAtTime(gainValue, audioCtx.currentTime);
+                    micGainNode = audioCtx.createGain();
+                    micGainNode.gain.setValueAtTime(micGainValue, audioCtx.currentTime);
 
                     const destination = audioCtx.createMediaStreamDestination();
                     const effectProcessor = createEffectProcessor(audioCtx);
 
-                    // マイク音声をゲイン＆エフェクトプロセッサーへ
-                    micSource.connect(gainNode);
-                    gainNode.connect(effectProcessor);
+                    // 1. スマホマイク音声のルーティング
+                    micSource.connect(micGainNode);
+                    micGainNode.connect(effectProcessor);
                     effectProcessor.connect(destination);
 
-                    // PCシステム音が選択されている場合は並列でデスティネーションにミックス
+                    // 2. PCシステム音声のルーティング（独立ゲインノード接続）
                     if (mixSystemAudioEnabled && systemStream && systemStream.getAudioTracks().length > 0) {
                         const sysSource = audioCtx.createMediaStreamSource(systemStream);
-                        const sysGain = audioCtx.createGain();
-                        sysGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
-                        sysSource.connect(sysGain);
-                        sysGain.connect(destination);
+                        sysGainNode = audioCtx.createGain();
+                        sysGainNode.gain.setValueAtTime(sysGainValue, audioCtx.currentTime);
+                        
+                        sysSource.connect(sysGainNode);
+                        sysGainNode.connect(destination); // 送信ラインに合成
                     }
 
                     status.innerText = 'ローカル接続中...';
@@ -352,7 +384,7 @@
                         btn.disabled = false;
                         btn.innerText = 'マイク送信を停止';
                         btn.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
-                        status.innerText = '🟢 送信中！（マイク＋システム音ミックス済み）';
+                        status.innerText = '🟢 送信中！（マイク＋PC音声を合成送信中）';
                     });
 
                     peer.on('error', (err) => {
