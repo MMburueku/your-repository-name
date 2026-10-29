@@ -37,7 +37,7 @@
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                ※PCと同じWi-Fi（またはアクセス可能なネットワーク）に接続してください。
+                ※同じWi-Fiに接続してください。
             </div>
 
             <!-- 音量増幅スライダー -->
@@ -85,29 +85,6 @@
                 <span class="text-amber-400 font-semibold">※「Chromeタブ」または「画面全体」を選び、「オーディオを共有」をオンにしてください。</span>
             </div>
 
-            <!-- リアルタイムVUメーター -->
-            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700 space-y-2">
-                <div class="text-xs font-semibold text-slate-300 mb-1">📊 音声受信レベル（VUメーター）</div>
-                <div>
-                    <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                        <span>📱 スマホマイク受信</span>
-                        <span id="micVuText">0%</span>
-                    </div>
-                    <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
-                        <div id="micVuBar" class="bg-emerald-500 h-full w-0 transition-all duration-75"></div>
-                    </div>
-                </div>
-                <div>
-                    <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                        <span>🎵 PCキャプチャ音声</span>
-                        <span id="sysVuText">0%</span>
-                    </div>
-                    <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
-                        <div id="sysVuBar" class="bg-indigo-500 h-full w-0 transition-all duration-75"></div>
-                    </div>
-                </div>
-            </div>
-
             <!-- PC側システム音ミキサー＆音量コントロール -->
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700 space-y-3">
                 <div class="flex items-center justify-between">
@@ -118,7 +95,7 @@
                 </div>
                 
                 <div id="sourceTargetContainer" class="hidden space-y-3 pt-2 border-t border-slate-800">
-                    <button type="button" id="btnSelectSource" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded text-xs font-bold transition">
+                    <button type="button" id="btnSelectSource" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs font-medium transition">
                         🎵 音声ソース（アプリ・タブ）を選択する
                     </button>
                     <div id="selectedSourceLabel" class="text-[11px] text-indigo-300 font-mono text-center truncate">選択中: なし</div>
@@ -158,11 +135,8 @@
             let audioCtx = null;
             let micGainNode = null;
             let sysGainNode = null;
-            let micAnalyser = null;
-            let sysAnalyser = null;
             let localStream = null;
             let systemStream = null;
-            let sysSourceNode = null;
             let isTransmitting = false;
             let isReceiving = false;
             
@@ -215,7 +189,7 @@
                         select.appendChild(opt);
                     });
                 } catch (e) {
-                    select.innerHTML = '<option value="">(デフォルトスピーカー)</option>';
+                    select.innerHTML = '<option value="">(デバイス取得エラー・要マイク許可)</option>';
                 }
             }
 
@@ -286,17 +260,18 @@
                         video: true 
                     });
 
+                    // 音声トラックのみを取り出す
                     const audioTracks = rawStream.getAudioTracks();
-                    rawStream.getVideoTracks().forEach(track => track.stop()); // 映像は破棄
+                    
+                    // 不要な映像トラック（ビデオトラック）は即座に停止して破棄
+                    rawStream.getVideoTracks().forEach(track => track.stop());
 
                     if (audioTracks.length > 0) {
+                        // 音声トラックだけで構成された新しいMediaStreamを生成
                         systemStream = new MediaStream([audioTracks[0]]);
+                        
                         const label = audioTracks[0].label || '選択された音声ソース';
-                        document.getElementById('selectedSourceLabel').innerText = `🟢 抽出完了: ${label}`;
-
-                        if (audioCtx) {
-                            attachSystemAudioToGraph();
-                        }
+                        document.getElementById('selectedSourceLabel').innerText = `🟢 音声抽出完了: ${label}`;
                         
                         audioTracks[0].onended = () => {
                             document.getElementById('selectedSourceLabel').innerText = '選択中: 停止されました';
@@ -304,7 +279,7 @@
                             mixSystemAudioEnabled = false;
                         };
                     } else {
-                        alert('⚠️ 音声が含まれていません！\n「Chromeタブ」または「画面全体」を選び、左下の「オーディオを共有」にチェックを入れてください。');
+                        alert('⚠️ 音声が含まれていません！\n共有ダイアログで「オーディオを共有」にチェックが入っているか確認してください。\n※「Tab(タブ)」または「画面全体」を選ぶと確実に音声が入ります。');
                         rawStream.getTracks().forEach(t => t.stop());
                         systemStream = null;
                         document.getElementById('selectedSourceLabel').innerText = '❌ 音声共有なし (再選択してください)';
@@ -316,50 +291,7 @@
                 }
             }
 
-            function attachSystemAudioToGraph() {
-                if (!audioCtx || !systemStream) return;
-                try {
-                    if (sysSourceNode) { try { sysSourceNode.disconnect(); } catch(e){} }
-                    
-                    sysSourceNode = audioCtx.createMediaStreamSource(systemStream);
-                    sysGainNode = audioCtx.createGain();
-                    sysGainNode.gain.setValueAtTime(sysGainValue, audioCtx.currentTime);
-                    sysAnalyser = audioCtx.createAnalyser();
-
-                    sysSourceNode.connect(sysGainNode);
-                    sysGainNode.connect(sysAnalyser);
-
-                    if (window.audioDestination) {
-                        sysGainNode.connect(window.audioDestination);
-                    }
-                } catch (e) {}
-            }
-
-            // VUメーター更新処理
-            function startVuMeters() {
-                const update = () => {
-                    if (micAnalyser) {
-                        const data = new Uint8Array(micAnalyser.frequencyBinCount);
-                        micAnalyser.getByteFrequencyData(data);
-                        const avg = data.reduce((a, b) => a + b, 0) / data.length;
-                        const pct = Math.min(100, Math.round((avg / 128) * 100));
-                        document.getElementById('micVuBar').style.width = pct + '%';
-                        document.getElementById('micVuText').innerText = pct + '%';
-                    }
-                    if (sysAnalyser) {
-                        const data = new Uint8Array(sysAnalyser.frequencyBinCount);
-                        sysAnalyser.getByteFrequencyData(data);
-                        const avg = data.reduce((a, b) => a + b, 0) / data.length;
-                        const pct = Math.min(100, Math.round((avg / 128) * 100));
-                        document.getElementById('sysVuBar').style.width = pct + '%';
-                        document.getElementById('sysVuText').innerText = pct + '%';
-                    }
-                    requestAnimationFrame(update);
-                };
-                update();
-            }
-
-            // エフェクトプロセッサー（送信側）
+            // エフェクトプロセッサー
             function createEffectProcessor(ctx) {
                 const bufferSize = 2048;
                 const node = ctx.createScriptProcessor(bufferSize, 1, 1);
@@ -377,7 +309,7 @@
                 return node;
             }
 
-            // 送信トグル（スマホ）
+            // 送信トグル
             document.getElementById('btnStartTx').addEventListener('click', async () => {
                 const id = document.getElementById('roomId').value.trim();
                 const status = document.getElementById('statusTx');
@@ -388,6 +320,7 @@
                 if (isTransmitting) {
                     if (peer) { try { peer.destroy(); } catch(e){} }
                     if (localStream) { localStream.getTracks().forEach(t => t.stop()); }
+                    if (systemStream) { systemStream.getTracks().forEach(t => t.stop()); }
                     if (audioCtx) { audioCtx.close(); }
                     isTransmitting = false;
                     btn.innerText = 'マイク送信を開始';
@@ -419,20 +352,31 @@
                     const destination = audioCtx.createMediaStreamDestination();
                     const effectProcessor = createEffectProcessor(audioCtx);
 
+                    // 1. スマホマイク音声のルーティング
                     micSource.connect(micGainNode);
                     micGainNode.connect(effectProcessor);
                     effectProcessor.connect(destination);
 
-                    status.innerText = '接続中...';
+                    // 2. PCシステム音声のルーティング（独立ゲインノード接続）
+                    if (mixSystemAudioEnabled && systemStream && systemStream.getAudioTracks().length > 0) {
+                        const sysSource = audioCtx.createMediaStreamSource(systemStream);
+                        sysGainNode = audioCtx.createGain();
+                        sysGainNode.gain.setValueAtTime(sysGainValue, audioCtx.currentTime);
+                        
+                        sysSource.connect(sysGainNode);
+                        sysGainNode.connect(destination); // 送信ラインに合成
+                    }
+
+                    status.innerText = 'ローカル接続中...';
                     if (peer) { try { peer.destroy(); } catch(e){} }
 
                     peer = new Peer(peerConfig);
 
                     peer.on('open', () => {
-                        status.innerText = 'PC側へ接続要求中...';
+                        status.innerText = 'PC側へ接続中...';
                         const call = peer.call('rx-' + id, destination.stream);
                         if (!call) {
-                            status.innerText = '❌ PC側（受信スタンバイ）が見つかりません';
+                            status.innerText = '❌ 同一Wi-Fi上のPCが見つかりません';
                             btn.disabled = false;
                             return;
                         }
@@ -440,7 +384,7 @@
                         btn.disabled = false;
                         btn.innerText = 'マイク送信を停止';
                         btn.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
-                        status.innerText = '🟢 マイク送信中！';
+                        status.innerText = '🟢 送信中！（マイク＋PC音声を合成送信中）';
                     });
 
                     peer.on('error', (err) => {
@@ -449,13 +393,13 @@
                     });
 
                 } catch (e) {
-                    status.innerText = '❌ マイク許可が必要です';
+                    status.innerText = '❌ マイクの許可が必要です';
                     btn.disabled = false;
                 }
             });
 
-            // 受信トグル（PC）
-            document.getElementById('btnStartRx').addEventListener('click', async () => {
+            // 受信トグル
+            document.getElementById('btnStartRx').addEventListener('click', () => {
                 const id = document.getElementById('roomId').value.trim();
                 const status = document.getElementById('statusRx');
                 const btn = document.getElementById('btnStartRx');
@@ -474,10 +418,7 @@
                 }
 
                 btn.disabled = true;
-                status.innerText = '受信用ノードを準備中...';
-
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                if (audioCtx.state === 'suspended') { await audioCtx.resume(); }
+                status.innerText = '受信用IDを作成中...';
 
                 if (peer) { try { peer.destroy(); } catch(e){} }
 
@@ -488,47 +429,27 @@
                     btn.disabled = false;
                     btn.innerText = '受信を停止';
                     btn.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
-                    status.innerText = '🟢 接続待ち中...（スマホ側で送信を開始してください）';
+                    status.innerText = '🟢 接続待ち中...';
                 });
 
                 peer.on('call', (call) => {
-                    status.innerText = 'スマホ接続完了！音声処理中...';
+                    status.innerText = '接続完了！再生中...';
                     call.answer();
 
-                    call.on('stream', async (remoteStream) => {
-                        if (audioCtx.state === 'suspended') await audioCtx.resume();
-
-                        // 1. スマホマイク音のルーティング＆アナライザー接続
-                        const micSource = audioCtx.createMediaStreamSource(remoteStream);
-                        micGainNode = audioCtx.createGain();
-                        micGainNode.gain.setValueAtTime(micGainValue, audioCtx.currentTime);
-                        micAnalyser = audioCtx.createAnalyser();
-
-                        micSource.connect(micGainNode);
-                        micGainNode.connect(micAnalyser);
-
-                        // 合成用Destination
-                        const dest = audioCtx.createMediaStreamDestination();
-                        window.audioDestination = dest;
-                        micGainNode.connect(dest);
-
-                        // 2. PC側で抽出済みの音声ソースがあれば接続
-                        if (mixSystemAudioEnabled && systemStream) {
-                            attachSystemAudioToGraph();
-                        }
-
-                        // 出力要素へ適用
-                        audioEl.srcObject = dest.stream;
+                    call.on('stream', async (stream) => {
+                        audioEl.srcObject = stream;
                         try { await audioEl.play(); } catch (e) {}
 
                         if (deviceId && typeof audioEl.setSinkId === 'function') {
                             try {
                                 await audioEl.setSinkId(deviceId);
-                            } catch (e) {}
+                                status.innerText = '🟢 受信中（出力先適用済み）';
+                            } catch (e) {
+                                status.innerText = '🟢 受信中（デフォルト出力）';
+                            }
+                        } else {
+                            status.innerText = '🟢 受信中！';
                         }
-
-                        status.innerText = '🟢 接続完了！音声ミキシング再生中';
-                        startVuMeters();
                     });
                 });
 
@@ -542,10 +463,12 @@
             document.getElementById('audioOutputSelect').addEventListener('change', async (e) => {
                 const deviceId = e.target.value;
                 const audioEl = document.getElementById('remoteAudio');
+                const status = document.getElementById('statusRx');
 
                 if (typeof audioEl.setSinkId === 'function') {
                     try {
                         await audioEl.setSinkId(deviceId);
+                        status.innerText = '🟢 受信中（出力先を変更しました）';
                     } catch (e) {}
                 }
             });
