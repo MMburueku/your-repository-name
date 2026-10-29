@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>スマホマイク中継器（音声ソースミキサー安定化版）</title>
+    <title>スマホマイク中継器（システム音ミックス完全対応版）</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS WebRTCライブラリ -->
@@ -13,7 +13,7 @@
 
     <div class="max-w-md w-full bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
         <h1 class="text-xl font-bold mb-1 text-center text-indigo-400">スマホマイク中継器</h1>
-        <p class="text-xs text-slate-400 mb-5 text-center">バックグラウンド維持＆PC音声キャプチャ対応</p>
+        <p class="text-xs text-slate-400 mb-5 text-center">マイク＋システム音 リアルタイムミキサー</p>
 
         <!-- タブ切り替えボタン -->
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-900 p-1 rounded-lg">
@@ -37,7 +37,7 @@
         <!-- パネル1：スマホ（送信側） -->
         <div id="panelTx" class="space-y-4">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                ※同じWi-Fiに接続してください。別アプリ移動時もバックグラウンドで接続を維持します。
+                ※同じWi-Fiに接続してください。
             </div>
 
             <!-- 音量増幅スライダー -->
@@ -81,8 +81,8 @@
         <!-- パネル2：PC（受信側） -->
         <div id="panelRx" class="space-y-4 hidden">
             <div class="text-xs text-slate-300 bg-indigo-950/40 border border-indigo-800/50 p-3 rounded-lg">
-                PCで再生中の音声をミックスして受信できます。<br>
-                <span class="text-amber-400 font-semibold">※特定のタブや画面全体を選択し、「音声/オーディオを共有」をオンにしてください。</span>
+                PCで再生中の音声をマイクに重ねて送信・出力できます。<br>
+                <span class="text-amber-400 font-semibold">※「タブ」または「画面全体」を選び、「オーディオを共有」をオンにしてください。</span>
             </div>
 
             <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700 space-y-3">
@@ -237,24 +237,21 @@
                         video: true 
                     });
 
-                    // 音声トラックが存在するかチェック
                     const audioTracks = systemStream.getAudioTracks();
                     if (audioTracks.length > 0) {
                         const label = audioTracks[0].label || '選択されたソース';
-                        document.getElementById('selectedSourceLabel').innerText = `選択中: ${label}`;
+                        document.getElementById('selectedSourceLabel').innerText = `🟢 選択中: ${label}`;
                         
-                        // 共有停止時の監視
                         audioTracks[0].onended = () => {
                             document.getElementById('selectedSourceLabel').innerText = '選択中: 停止されました';
                             document.getElementById('mixSystemAudio').checked = false;
                             mixSystemAudioEnabled = false;
                         };
                     } else {
-                        // 音声トラックがない場合は警告
-                        alert('⚠️ 音声が含まれていません！\n共有ダイアログで「オーディオを共有」または「タブの音声を共有」にチェックを入れたか確認してください。\n※「ウィンドウ」指定では音声を拾えない場合があります。');
+                        alert('⚠️ 音声が含まれていません！\n共有ダイアログで「オーディオを共有」にチェックを入れたか確認してください。\n※「ウィンドウ」ではなく「タブ」または「画面全体」を選ぶと確実に音が入ります。');
                         systemStream.getTracks().forEach(t => t.stop());
                         systemStream = null;
-                        document.getElementById('selectedSourceLabel').innerText = '選択中: 音声共有なし(要再選択)';
+                        document.getElementById('selectedSourceLabel').innerText = '❌ 音声共有なし (再選択してください)';
                     }
                 } catch (err) {
                     document.getElementById('mixSystemAudio').checked = false;
@@ -317,30 +314,25 @@
                     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                     if (audioCtx.state === 'suspended') { await audioCtx.resume(); }
 
-                    const source = audioCtx.createMediaStreamSource(localStream);
+                    const micSource = audioCtx.createMediaStreamSource(localStream);
                     gainNode = audioCtx.createGain();
                     gainNode.gain.setValueAtTime(gainValue, audioCtx.currentTime);
 
                     const destination = audioCtx.createMediaStreamDestination();
+                    const effectProcessor = createEffectProcessor(audioCtx);
 
+                    // マイク音声をゲイン＆エフェクトプロセッサーへ
+                    micSource.connect(gainNode);
+                    gainNode.connect(effectProcessor);
+                    effectProcessor.connect(destination);
+
+                    // PCシステム音が選択されている場合は並列でデスティネーションにミックス
                     if (mixSystemAudioEnabled && systemStream && systemStream.getAudioTracks().length > 0) {
-                        const systemSource = audioCtx.createMediaStreamSource(systemStream);
-                        const systemGain = audioCtx.createGain();
-                        systemGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
-
-                        // マイクとPC音声を並列合成
-                        const effectProcessor = createEffectProcessor(audioCtx);
-                        source.connect(gainNode);
-                        gainNode.connect(effectProcessor);
-                        
-                        effectProcessor.connect(destination);
-                        systemSource.connect(systemGain);
-                        systemGain.connect(destination);
-                    } else {
-                        const effectProcessor = createEffectProcessor(audioCtx);
-                        source.connect(gainNode);
-                        gainNode.connect(effectProcessor);
-                        effectProcessor.connect(destination);
+                        const sysSource = audioCtx.createMediaStreamSource(systemStream);
+                        const sysGain = audioCtx.createGain();
+                        sysGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
+                        sysSource.connect(sysGain);
+                        sysGain.connect(destination);
                     }
 
                     status.innerText = 'ローカル接続中...';
@@ -360,7 +352,7 @@
                         btn.disabled = false;
                         btn.innerText = 'マイク送信を停止';
                         btn.className = "w-full bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold py-3 rounded-lg transition text-sm shadow-lg";
-                        status.innerText = '🟢 送信中！';
+                        status.innerText = '🟢 送信中！（マイク＋システム音ミックス済み）';
                     });
 
                     peer.on('error', (err) => {
